@@ -1,0 +1,232 @@
+---
+title: "Estimating Star Temperatures Using Spectra"
+author:
+  - Gabriella Weis
+  - Maddie Strate
+date: today
+format:
+ html:
+    embed-resources: true
+    theme: pulse
+    title-block-banner: true
+editor: visual
+---
+
+## Introduction
+
+In this problem, we have been tasked with using spectral data to determine the temperature, in degrees kelvin, of a select three stars' surfaces. This will require the use of two significant laws: Wien's and Planck's (we will use both methods for comparison purposes). But before we get into any equations, we need to load the data and our necessary packages. Below, we load in the data for each star and `tidyverse`, which will be useful for graphing `(ggplot2)` and organizing the data `(dplyr)`.
+
+```{r, output=FALSE}
+library(tidyverse)
+star1 <- read_csv("star1.csv")
+star2 <- read_csv("star2.csv")
+star3 <- read_csv("star3.csv")
+```
+
+We will also take a look at the first six rows of one of the datasets, noting that each dataset has the same two variables. These two variables are wavelength (in nano-meters) and flux, both of which will prove necessary in our calculations for temperature.
+
+```{r}
+head(star1)
+```
+
+## Laws
+
+Now that we've taken a quick look at the data and know what variables we have available to us, we also need to have a good understanding of the equations we'll be using to calculate the stars' temperatures in kelvin.
+
+First is Planck's Law, which has a bit of a more complicated equation:
+
+*h* = 6.6261e-34 (joules $\times$ seconds)
+
+*c* = 3e8 (speed of light in meters per second)
+
+$k_B$ = 1.381e-23 (joules per kelvin)
+
+*λ* = wavelength (meters)
+
+*T* = temperature (kelvin)
+
+*B(λ,T)* = brightness (or flux)
+
+$$
+B(λ,T) = ε\times\frac{2hc^2}{λ^5}\frac{1}{exp(\frac{hc}{λk_BT})-1}
+$$ Second is Wien's Law, with an objectively simpler structure:
+
+2.8977e-03 = constant in meters $\times$ kelvin
+
+*T* = temperature in kelvin
+
+$λ_{peak}$ = peak wavelength in meters
+
+$$
+T = \frac{2.8977 \times 10^{-3}(m⋅K) \space}{\lambda_{peak}}
+$$ Now, let's return to our goal, which is to solve for each star's temperature. Planck's Law will involve fitting a curve to the data while Wien's is more about calculating a single value, so they will both require different approaches. We are also unable to use Wien's Law if we don't know the peak wave, which is important to keep in mind.
+
+First, because the wavelengths in our equations are in meters, and we need them to align with our equations' units, we will convert wavelengths from nano-meters to meters in each star dataset using the dplyr verb `mutate()`. As we can see using `head()`, we have a new column called `wavem,` which represents wavelength in meters.
+
+```{r}
+# Convert wavelengths from nm to m
+star1 <- star1 %>%
+  mutate(wavem = wavelength_nm*(1e-9))
+star2 <- star2 %>%
+  mutate(wavem = wavelength_nm*(1e-9))
+star3 <- star3 %>%
+  mutate(wavem = wavelength_nm*(1e-9))
+
+# Use head() to make sure everything worked
+head(star1)
+```
+
+Next, we can create a function for each law. These functions will be important for Planck's curve fitting and for ease of Wien's calculation.
+
+The function for Planck's Law is written in code below, and its constants defined (*h*, *c*, and $k_B$). Its input is `wavem` (wavelength in meters), `em` (emissivity), and `temp` (temperature in kelvin). We know neither emissivity, which is how well an object radiates, nor temperature, and curve fitting will give us the values for both. The rest of the function constructs the equation associated with Planck's Law.
+
+```{r}
+h = 6.621e-34 # Js
+c = 3e8 # m/s
+kB = 1.381e-23 # J/K
+
+planck <- function(wavem, em, temp) {
+  frac1 = em*2*h*c^2/wavem^5
+  frac2 = 1/(exp(h*c/(kB*temp*wavem))-1)
+  return(frac1*frac2)
+}
+```
+
+The function for Wien's Law is next, simpler once again. It takes in `peak_wave` (wavelength in meters) and divides a constant by it to obtain the temperature in kelvin.
+
+```{r}
+wien <- function(peak_wave) {
+  return(2.8977e-3/peak_wave)
+}
+```
+
+## Star 1
+
+Now that we have our Planck and Wien functions and everything in the proper units, we can begin solving for temperature using our two methods on Star One.
+
+In order to estimate the star's temperature using Wien's, we should first plot wavelength against flux using `ggplot` (whether wavelength is in meters or nano-meters doesn't really matter here, but we will use meters). This will help us determine whether or not there's a clear peak wave and if we can even use the law. Thankfully, we end up being able to see the peak wave pretty clearly on this graph, so using Wien's Law seems to be a perfectly safe idea.
+
+```{r}
+#| code-fold: true
+ggplot(star1, aes(wavem, flux)) + geom_line() +
+  labs(title = "Flux Over a Spectrum of Wavelengths in Star 1",
+       x = "Wavelength (meters)",
+       y = "Flux") +
+  theme_minimal()
+```
+
+To find the temperature in kelvin according to Wien's Law, we will use `which.max()` to calculate the maximum flux value (on the y-axis). Then we will use that index to select the peak wave in meters (on the x-axis). Lastly, we will plug this value into the Wien function that we created earlier and receive our desired temperature, which is calculated to be about 7173.867 kelvin.
+
+```{r}
+max_flux = which.max(star1$flux)
+# find peak wave in wavelengths from calculated flux
+peak_wave <- star1$wavem[max_flux]
+temp = wien(peak_wave)
+
+paste("Temperature =", temp,"K")
+```
+
+Having obtained our estimation from Wien's Law, we can now move on to Planck's. This means curve fitting with the `nls()` function, which we do below, setting our equation `(flux ~ planck(wavem, em, temp))`, specifying the data `(data = star1)`, and making reasonable guesses for `em` and `temp` `(start = list(em = 0.1, temp = 6000))`. We assigned this fit to the variable `model1` and its predicted flux values to `curve1` for future plotting. Our output includes fitted values for `em` and `temp`, but what really matters to us is `temp`, which is calculated to be approximately 6634.027 kelvin. We extracted the temperature value from our model output using the function `coef()`, and printed it out alongside its units.
+
+```{r}
+model1 <- nls(flux ~ planck(wavem, em, temp), data = star1, start = list(em = 0.1, temp = 6000))
+
+curve1 <- predict(model1)
+
+# Extract temperature value for printing purposes
+temp_value1 <- coef(model1)["temp"]
+paste("Temperature =", temp_value1, "K")
+```
+
+We can take a look at the fitted curve over the actual spectral data by adding a `geom_line()` to our original plot, changing the colors and specifying `wavem` (wavelength in meters) and `curve1` (the predicted flux values) in the new aesthetic. This produces a curve that follows the spectral data relatively well and verifies both the `nls()` model and its temperature estimate for us.
+
+```{r, warning=FALSE}
+#| code-fold: true
+ggplot(star1, aes(wavem, flux)) + geom_line(color = "blue") +
+  labs(title = "Flux vs. Wavelength of Star 1 with Fitted Planck Curve",
+       x = "Wavelength (meters)",
+       y = "Flux") + geom_line(aes(wavem, curve1), color = "black", size = 1) +
+  theme_minimal()
+```
+
+Finally, it comes down to which temperature estimate we should trust more. While we used Planck's Law to fit a curve to the data, Wien's estimate comes from a single point on the spectral data: the peak wave. In other words, Planck's takes all of the data into account, and for this reason, it appears to be more accurate and reliable than Wien's.
+
+## Star 2
+
+We will do the same thing that we did for Star One with Star Two and Three. First, for Star Two, we will plot wavelength (in meters) against flux to analyze the peak wave and decide whether or not we can use Wien's to estimate the temperature. We will use the same `ggplot` structure as we did with Star One. This time however, the plot does not display a clear peak wave. This means that for Star Two, we cannot use Wien's Law, and must rely purely on the temperature we will calculate using Planck's.
+
+```{r}
+#| code-fold: true
+ggplot(star2, aes(wavem, flux)) + geom_line() +
+  labs(title = "Flux Over a Spectrum of Wavelengths in Star 2",
+       x = "Wavelength (meters)",
+       y = "Flux") +
+  theme_minimal()
+```
+
+For Planck's, we once again use the `nls()` function to fit a curve. We set our equation `(flux ~ planck)`, specify the data `(star2)`, and make guesses for "em" and "temp" `(em = 2e-11, temp = 6000)`. We also assign this fit to the variable `model2` and its predicted flux values to `curve2` for future plotting. This time our output calculates "temp" to be approximately 10770.432 kelvin. As before, we extract the temperature value from our model output using the function `coef()`, and print it out alongside its units.
+
+```{r}
+model2 <- nls(flux ~ planck(wavem, em, temp), data = star2, start = list(em = 2e-11, temp = 6000))
+curve2 <- predict(model2)
+
+# Extract temperature value for printing purposes
+temp_value2 <- coef(model2)["temp"]
+paste("Temperature =", temp_value2, "K")
+```
+
+In order to visualize the Planck curve against the original spectral data, we once again add a `geom_line()` to our original plot, changing the colors and specifying `wavem` (wavelength in meters) and `curve2` (the predicted flux values) in the new aesthetic. This produces a curve that follows the spectral data very closely, verifying our model and its temperature estimate. This is comforting because we could not use Wien's Law to estimate the temperature due to the lack of a visible peak in the curve and have to rely on Planck's as a result.
+
+```{r}
+#| code-fold: true
+ggplot(star2, aes(wavem, flux)) + geom_line(color = "blue") +
+  labs(title = "Flux vs. Wavelength of Star 2 with Fitted Planck Curve",
+       x = "Wavelength (meters)",
+       y = "Flux") + geom_line(aes(wavem, curve2), color = "black", size = 1) +
+  theme_minimal()
+```
+
+## Star 3
+
+For Star Three, we start with Wien's again, attempting to confirm the existence of a peak wave in our data by plotting it. Like Star One and unlike Star Two, there is a visible peak wave to be found, as shown below.
+
+```{r}
+#| code-fold: true
+ggplot(star3, aes(wavem, flux)) + geom_line() +
+  labs(title = "Flux Over a Spectrum of Wavelengths in Star 3",
+       x = "Wavelength (meters)",
+       y = "Flux") +
+  theme_minimal()
+```
+
+Following the same process here as for Star One, we select the maximum flux value (on the y-axis) using `which.max()` and then use that index to select the peak wave in meters (on the x-axis). We will plug this value into the Wien function that we created earlier and receive our desired temperature, which is calculated to be about 5198.204 kelvin.
+
+```{r}
+max_flux = which.max(star3$flux)
+peak_wave <- star3$wavem[max_flux]
+temp = wien(peak_wave)
+
+paste("Temperature =", temp, "K")
+```
+
+Moving on to Planck's and the `nls()` curve fit, we set our equation `(flux ~ planck)`, specify the data `(star3)`, and make guesses for `em` and `temp` `(em = 0.1, temp = 6000)`. Akin to what we've done twice before, we assign this fit to the variable `model3` and its predicted flux values to `curve3` for future curve plotting. We get an output for `temp` of approximately 4817.781 kelvin. Again, we extract the temperature value from our model output using the function `coef()`, and print it out alongside its units.
+
+```{r}
+model3 <- nls(flux ~ planck(wavem, em, temp), data = star3, start = list(em = 0.1, temp = 6000))
+curve3 <- predict(model3)
+
+# Extract temperature value for printing purposes
+temp_value3 <- coef(model3)["temp"]
+paste("Temperature =", temp_value3, "K")
+```
+
+In order to visualize the Planck curve against the original spectral data, we once again add a `geom_line()` to our original plot, changing the colors and specifying `wavem` (wavelength in meters) and `curve3` (the predicted flux values) in the new aesthetic. This produces a curve that follows the spectral data fairly well, though maybe slightly less accurately than the curve fits for Star One and Two (this spectral data is admittedly varied). Nevertheless, it produces an estimate that seems more trustworthy than Wien's, especially considering the drastic spike on the plot for Star Three that corresponds with its peak wave. This is why, once again, we'd choose to trust Planck's temperature estimate over Wien's.
+
+```{r}
+#| code-fold: true
+ggplot(star3, aes(wavem, flux)) + geom_line(color = "blue") +
+  labs(title = "Flux vs. Wavelength of Star 3 with Fitted Planck Curve", 
+       x = "Wavelength (meters)",
+       y = "Flux") + geom_line(aes(wavem, curve3), color = "black", size = 1) +
+  theme_minimal()
+```

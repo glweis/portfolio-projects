@@ -1,0 +1,133 @@
+---
+title: "Problem 2: Speedy Stars"
+author:
+- Maddie Strate
+- Gabriella Weis
+date: today
+format:
+  html:
+    embed-resources: true
+    theme: minty
+    title-block-banner: true
+---
+
+## Introduction
+
+This problem called us to calculate the radial velocity of an unknown star by using data of its flux over various wavelengths. We would need to plot this data, then match spectral peaks to known spectral lines of atoms at rest. Plotting the observed vs. rest wavelengths and fitting a line to the data would give us a slope that we would then use to get the velocity.
+
+First, we loaded in the `tidyverse` library to wrangle and visualize our data. Then we read in the CSV file `speedstar` containing the star's wavelength and flux data. The wavelength (`wavelength_nm`) was in nm. The flux (`flux`) was in unknown units, but the units wouldn't be necessary for any of our calculations.
+
+```{r}
+#| output: false
+library(tidyverse)
+library(knitr)
+speedstar <- read_csv("data/speedstar.csv")
+```
+
+## Matching Spectral Peaks
+
+We plotted `wavelength_nm` on the x-axis and `flux` on the y-axis to visualize our star's spectral peaks. To read the wavelengths where those peaks appeared off the graph more accurately, we added additional vertical lines to the graph.
+
+We identified 5 spectral peaks that matched the known spectral lines we'd been given. We found the exact observed wavelengths by estimating where they lay and then manually looking through the data set (which was sorted in order of ascending wavelength) to find the local minimum around that point. All of our local minima ended up being around 1 nm more than the rest wavelength of the element we hypothesized had caused the spectral line. This suggested the star was moving away from us, as the wavelengths were being slightly stretched (redshift). It also lent validity to our matching up of the elements since the star's velocity should cause similar amounts of stretching in wavelengths across the spectrum.
+
+The elements we matched, along with their observed and rest wavelengths ($\lambda_{obs}$ and $\lambda_{rest}$), are listed in the table below. The observed spectral peaks are labeled and indicated with red lines in the figure underneath that.
+
+|   Element    | $\lambda_{obs}$ (nm) | $\lambda_{rest}$ (nm) |
+|:------------:|:--------------------:|:---------------------:|
+| $H_{\delta}$ |       411.1498       |        410.175        |
+| $H_{\gamma}$ |       435.1110       |        434.047        |
+| $H_{\beta}$  |       487.3041       |        486.270        |
+|      Na      |       589.1150       |        588.595        |
+| $H_{\alpha}$ |       657.8094       |        656.464        |
+
+In this figure, Hd corresponds to $H_{\delta}$, Hg corresponds to $H_{\gamma}$, Hb corresponds to $H_{\beta}$, and Ha corresponds to $H_{\alpha}$.
+
+```{r}
+#| code-fold: true
+#| warning: false
+ggplot(speedstar, aes(wavelength_nm, flux)) + 
+  geom_vline(xintercept = seq(350, 900, 10), color = "lightgray") +
+  geom_vline(xintercept = c(657.8094, 589.1150, 487.3041, 435.1110, 411.1498), 
+             color = "red") +
+  geom_label(aes(x = 385, y = 1500), color = "red", label = "Hd") +
+  geom_label(aes(x = 455, y = 1000), color = "red", label = "Hg") +
+  geom_label(aes(x = 510, y = 6000), color = "red", label = "Hb") +
+  geom_label(aes(x = 610, y = 7500), color = "red", label = "Na") +
+  geom_label(aes(x = 685, y = 9000), color = "red", label = "Ha") +
+  labs(title = "Star's Flux over Various Wavelengths",
+     x = "Wavelength (nm)", y = "Flux") +
+  geom_line() +
+  theme_minimal()
+```
+
+## Plotting Observed vs. Rest Wavelengths
+
+Now that we had the observed and rest wavelengths, we could plot them to find the slope that would then help us find the star's radial velocity. We made a basic data frame (`obs_res`) of the observed (`obs`) and rest (`res`) wavelengths, then took a linear regression of the data. The calculated slope of that line was 1.002, under `res` below. (Since the slope was a wavelength divided by another wavelength, it was unitless.)
+
+```{r}
+obs <- c(657.8094, 589.1150, 487.3041, 435.1110, 411.1498)
+res <- c(656.464, 588.595, 486.270, 434.047, 410.175)
+obs_res <- data.frame(res, obs)
+
+lm(obs ~ res, obs_res)
+```
+
+We plotted the line we'd found over our `obs_res` data to make sure the line appeared to fit. We wouldn't need the intercept to find the velocity, but it was useful visually to put the line directly on top of the points. Looking at the graph, you can see that the slope we calculated represents the observed wavelength divided by the rest wavelength ($\frac{\lambda_o}{\lambda_r}$).
+
+```{r}
+#| code-fold: true
+ggplot(obs_res, aes(res, obs)) + 
+  geom_point() + 
+  geom_abline(slope = 1.0002, intercept = 0.8698) +
+  labs(title = "Observed vs. Rest Wavelengths with Fitted Line",
+     x = "Rest Wavelength (nm)", y = "Observed Wavelength (nm)") +
+  theme_minimal()
+```
+
+The line did appear to fit, so we felt confident in using our calculated slope to calculate the star's radial velocity.
+
+## Calculating Radial Velocity
+
+The Doppler relation between observed and rest wavelengths and the velocity of the object is described in the following equation:
+
+$$
+\lambda_o = \frac{V + c}{c}\lambda_r
+$$
+
+where $\lambda_o$ is the observed wavelength, $\lambda_r$ is the wavelength at rest, $V$ is the velocity of the object, and $c$ is the speed of light, $3 \times 10^8$ m/s.
+
+By dividing both sides of the equation by $\lambda_r$, it becomes:
+
+$$
+\frac{\lambda_o}{\lambda_r} = \frac{V + c}{c}
+$$
+
+As discussed previously, $\frac{\lambda_o}{\lambda_r}$ was what our calculated slope represented. Thus, using $m$ to represent slope, the equation could be rewritten as:
+
+$$
+m = \frac{V + c}{c}
+$$
+
+or:
+
+$$
+m = \frac{V}{c}+1
+$$
+
+Rearranging the equation to solve for velocity, we got:
+
+$$
+V = c(m-1)
+$$
+
+Now we had an equation we could use. We plugged in the slope and the speed of light and obtained our answer.
+
+```{r}
+slope = 1.0002
+c = 3e8   # m/s
+  
+v = (slope - 1)*c
+print(paste("Radial Velocity =", v, "m/s"))
+```
+
+A positive radial velocity means the star is moving away from the observer, so this supported our previous hypothesis based on the wavelengths stretching. The star was moving away from us at about 60,000 m/s.

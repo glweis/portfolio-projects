@@ -1,0 +1,124 @@
+---
+title: "Building an HR Diagram"
+author:
+  - Gabriella Weis
+  - Maddie Strate
+date: today
+format:
+ html:
+    embed-resources: true
+    theme: pulse
+    title-block-banner: true
+editor: visual
+---
+
+## Introduction
+
+In this problem, we have been tasked with creating an HR diagram using a dataset of approximately 1.3 million stars measured by the Gaia mission. We will do this by taking the difference between the blue band and red band magnitudes and using that as a substitute for temperature (x-axis) and then calculating the absolute magnitude for the green band (y-axis). The difference between the B and R magnitudes can be used as a substitute for temperature because how "blue" or "red" a star is correlates to its temperature - blue stars are hotter and red stars are cooler. The green band covers the widest range of wavelengths, so we'll use that measurement for the overall magnitude.
+
+We will need the group of packages `tidyverse`, which contains `ggplot2` (which is important for creating the HR diagram) and `dplyr` (which is useful for creating new variable columns). We will load it in below alongside the data.
+
+```{r, output=FALSE}
+library(tidyverse)
+gaia <- read_csv("gaia_200pc.csv")
+```
+
+Now that we have the dataset, called `gaia`, and our necessary packages loaded in, we can take a closer look at the variables we have to work with using `head()`. These include `mg` (G band filter), `mb` (B band filter), `mr` (R band filter), and `parallax` (which is the shift of an object relative to its background, in milliarcseconds).
+
+From these variables we can gain some direction. Our HR Diagram will have the difference between the B and R magnitudes of a star on the *horizontal* axis (x), and the absolute magnitude in the G band on the *vertical* axis (y). Our absolute magnitude will be derived from the provided parallax angle.
+
+```{r}
+head(gaia)
+```
+
+## Converting Units and Creating New Variables
+
+To find out if a star is more blue or red (or its relative temperature, as blue stars are more hot than red stars), we find the difference between the B and R band filters. This will end up on the horizontal axis of our HR diagram, as mentioned previously. We use `mutate()` to add this as a new column to the `gaia` dataset, named `br_dif` and check the result with `head()`.
+
+```{r}
+gaia <- gaia %>% 
+  mutate(br_dif = mb - mr)
+
+head(gaia)
+```
+
+We have our horizontal axis for the diagram, but we still need the vertical one, which will represent absolute magnitude. Recall that this requires a distance and can be derived from the parallax angle in our dataset using the formula below.
+
+$d_{pc}$ = distance in parsecs
+
+$p_{asec}$ = parallax in arcseconds
+
+$$
+d_{pc} = \frac{1}{p_{asec}}
+$$ The catch here is that our current measure of parallax angle in the dataset is in milliarcseconds rather than arcseconds. In order to proceed with the formula, we must first convert the parallax to arcseconds, and we do so using `mutate()`. This creates a new variable column called `parallax_arcs`, and we can verify the creation of this column using `head()`.
+
+```{r}
+gaia <- gaia %>% 
+  mutate(parallax_arcs = parallax/1000)
+
+head(gaia)
+```
+
+Now we can use the formula to calculate distance in parsecs, using `mutate()` again to add a new variable column called `dist` to `gaia`. We can verify the creation of this column using `head()`.
+
+```{r}
+gaia <- gaia %>% 
+  mutate(dist = 1/parallax_arcs)
+
+head(gaia)
+```
+
+It's finally time to calculate the absolute magnitude for our diagram! We can use the formula below.
+
+$d_{pc}$ = distance in parsecs
+
+*m* = G band filter
+
+*M* = absolute magnitude
+
+$$
+M = m - 5\log_{10}{(\frac{d_{pc}}{10})}
+$$ For simplicity's sake (and cleaner code), we created a function called `absmag` to calculate absolute magnitude. It takes in the variables `mg` and `dist` and breaks down the equation into manageable pieces, returning absolute magnitude as *M*.
+
+```{r}
+absmag <- function(mg, dist) {
+  log_term <- log10(dist/10)
+  M = mg - 5*log_term
+  return(M)
+}
+```
+
+With this new function under our belt, we can add a new variable column to `gaia,` using `mutate()` once again. We can once again verify the creation of this column using `head()`.
+
+```{r}
+gaia <- gaia %>% 
+  mutate(abs_mag = absmag(mg, dist))
+
+head(gaia)
+```
+
+## Constructing the HR Diagram
+
+Now that we have both the difference between the B and R band filters (color) and the absolute magnitude of each observation, we can construct our HR diagram using `ggplot`. We set `br_dif` as our x-axis and `abs_mag` as our y-axis, reverse the scale of the y-axis, and make the points a bit more transparent than usual for visualization purposes.
+
+The result is an HR diagram with a large mass of points, and it's a bit messy. Though we are able to identify with reasonable clarity the Main sequence, Giants, and White Dwarfs, there are certainly better ways to visualize it.
+
+```{r}
+#| code-fold: true
+ggplot(gaia, aes(br_dif, abs_mag)) + geom_point(color = "navy", alpha = 0.3) + scale_y_reverse() +
+  ggtitle("HR Diagram (Scatter Plot)") +
+  xlab("Difference Between Blue and Red Band") +
+  ylab("Absolute Magnitude") + theme_minimal()
+```
+
+Our second attempt at visualization is a 2d histogram. We construct the histogram in a very similar way to the scatterplot, adding `geom_bin_2d()` instead of `geom_point()` this time. It produces something a bit more tolerable to look at. We can see the Main Sequence very clearly at the center, a much fainter line in the bottom left for the White Dwarfs, and the branch of the Giants emerging from the Main Sequence near the top.
+
+```{r}
+#| code-fold: true
+ggplot(gaia, aes(br_dif, abs_mag)) + geom_bin_2d(bins = 40) + scale_y_reverse() +
+  ggtitle("HR Diagram (2D Histogram)") +
+  xlab("Difference Between Blue and Red Band") +
+  ylab("Absolute Magnitude") + theme_minimal()
+```
+
+Looking at our final result, almost all parts that we would expect to be visible are so, except perhaps the Supergiants, which are meant to be located just above the branch of the Giants. Therefore, it seems as though we may lose this section of the diagram by only looking at stars within 200 parsecs.

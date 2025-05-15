@@ -1,0 +1,220 @@
+---
+title: "Problem 4: 'Well, You Look Great For 10 Billion'"
+author:
+- Maddie Strate
+- Gabriella Weis
+date: today
+format: 
+  html:
+    embed-resources: true
+    theme: pulse
+    title-block-banner: true
+---
+
+## Introduction
+
+In this problem, we were tasked with determining which of two star clusters was older. We started with two data sets, each containing the magnitude and parallax angle of each star in the area. For each data set, we would need to plot the stars' distances and identify at what distance the most stars were, thereby honing in on the location of the cluster. We could then filter out the stars not in the cluster, make an HR diagram with only the filtered stars, and examine the two diagrams to compare the clusters' ages.
+
+First, we loaded in the `tidyverse` library to wrangle and visualize our data. Then we read in the CSV files, `cluster1` and `cluster2`, containing the data.
+
+```{r}
+#| output: false
+library(tidyverse)
+
+cluster1 <- read_csv("data/star_cluster1.csv")
+cluster2 <- read_csv("data/star_cluster2.csv")
+```
+
+## Isolating the Star Clusters
+
+In the data sets, the magnitudes were split into red (`mr`), blue (`mb`), and green (`mg`) bands. The parallax angles (in the column `parallax`) were in milliarcseconds. To plot the stars' distances, we needed to convert the parallax angles to physical distance using the formula below:
+
+$$
+d_{pc} = \frac{1}{p_{asec}}
+$$
+
+where $d_{pc}$ is the distance in parsecs and $p_{asec}$ is the parallax angle in arcseconds. Thus, we needed to convert the parallax angles in our data sets to arcseconds by dividing the given milliarcsecond value by 1000. In all, we calculated the physical distances using this formula:
+
+$$
+d_{pc} = \frac{1}{p_{masec}/1000}
+$$
+
+where $p_{masec}$ is the parallax angle in milliarcseconds.
+
+We applied this formula to every value in the `parallax` column in both data sets and stored these newly calculated values in new `parsec` columns.
+
+```{r}
+cluster1 <- cluster1 %>% 
+  mutate(parsec = 1/(parallax/1000))
+
+cluster2 <- cluster2 %>% 
+  mutate(parsec = 1/(parallax/1000))
+```
+
+Now that we had the distances, we needed to plot them to identify where most of the stars were and thus locate our star clusters. We used histograms for this. We also looked up the average size of star clusters and found that they could be as much as 450 lightyears across, which is about 140 parsecs (Gohd). This meant we needed to filter each group of stars to a distance range of 140 pc. That way, we wouldn't be including a distance range of stars too large to all be in a cluster but also wouldn't be excluding some of the stars in the cluster by mistake.
+
+### Cluster 1
+
+When we plotted the star distances in the area containing the first star cluster, we noticed a large spike in stars just nearer than 1000 pc, indicated by the purple coloring below.
+
+```{r}
+#| code-fold: true
+ggplot(cluster1, aes(parsec)) +
+  geom_histogram(bins = 20, aes(fill = after_stat(count) > 750)) +
+  labs(title = "Distribution of Star Distances in Area 1",
+     x = "Distance from Earth (pc)", y = "Star Count") +
+  theme_minimal() +
+  scale_fill_manual(values = c(alpha("grey", 0.7), "purple")) +
+  theme(legend.position = "none")
+  
+```
+
+We filtered the data set to include just that spike and the area around it, then plotted it to see how much we had narrowed in on what we thought to be the cluster. We repeated this process until we had a range of 150 pc - just above our optimal range.
+
+```{r}
+filtered_cluster1 <- cluster1 %>% 
+  filter(800 < parsec & parsec < 950)
+```
+
+In this range, though the counts still rose to a maximum, there was no longer an obvious spike. Notice in the figure below that the peak star count is at about 870 pc, with gradually fewer stars in each direction. Thus, we agreed the stars in this distance range resided in a cluster centered at 870 pc from Earth.
+
+```{r}
+#| code-fold: true
+ggplot(filtered_cluster1, aes(parsec)) +
+  geom_histogram(bins = 20) +
+  labs(title = "Distribution of Star Distances in Cluster 1",
+     x = "Distance from Earth (pc)", y = "Star Count") +
+  theme_minimal()
+```
+
+### Cluster 2
+
+The initial plot of the distances in the second data set had a similar spike to the first, again indicated by purple coloring.
+
+```{r}
+#| code-fold: true
+ggplot(cluster2, aes(parsec)) + 
+  geom_histogram(bins = 20, aes(fill = after_stat(count) > 400)) +
+  labs(title = "Distribution of Star Distances in Area 2",
+     x = "Distance from Earth (pc)", y = "Star Count") +
+  theme_minimal() +
+  scale_fill_manual(values = c(alpha("grey", 0.7), "purple")) +
+  theme(legend.position = "none")
+```
+
+We repeated the same filtering and plotting process to "zoom in" on the second cluster, eventually landing on a distance range between 1750 and 2050 pc (300 pc across).
+
+```{r}
+filtered_cluster2 <- cluster2 %>% 
+  filter(1750 < parsec & parsec < 2050)
+```
+
+As seen in the figure below, the peak of star counts was much wider here and the drops on either side much more gradual. We decided it was better to possibly include some stars not in the cluster than exclude stars in the cluster, so we didn't filter further and left a larger range of distances in our filtered data set.
+
+```{r}
+#| code-fold: true
+ggplot(filtered_cluster2, aes(parsec)) + 
+  geom_histogram(bins = 20) +
+  labs(title = "Distribution of Star Distances in Cluster 2",
+     x = "Distance from Earth (pc)", y = "Star Count") +
+  theme_minimal()
+```
+
+Looking at the differing shapes of our filtered charts, we hypothesized that Cluster 1 was a globular cluster since the stars were more concentrated at the center and Cluster 2 was an open cluster since it was larger and more spread out. Since globular clusters are usually older than open clusters, this would suggest Cluster 1 was older. The HR diagrams we'd make in our next step would hopefully confirm this.
+
+## HR Diagrams
+
+HR diagrams are useful to make to determine the relative ages of star clusters because generally, the farther to the upper left the "elbow" where the stars leave the main sequence and become giants is, the younger the cluster is.
+
+Our HR diagrams would have the absolute magnitude based on `mg` (magnitude of the green band) on the y-axis. This was because the green band covers the largest range of wavelengths and would thus have the most complete magnitude measurement. The x-axis would be the difference between `mb` and `mr` (magnitude of the blue and red bands, respectively), because how "blue" or "red" a star is is analogous to its temperature. Bluer stars are hotter and redder stars are cooler.
+
+To create these HR diagrams, we first added another column (`br_dif`) to our filtered data sets with the calculated difference between `mb` and `mr`.
+
+```{r}
+filtered_cluster1 <- filtered_cluster1 %>% 
+  mutate(br_dif = mb - mr)
+filtered_cluster2 <- filtered_cluster2 %>% 
+  mutate(br_dif = mb - mr)
+```
+
+Next, we found the absolute magnitude of the green band using the formula below:
+
+$$
+M = m - 5\log_{10}{(\frac{d_{pc}}{10})}
+$$
+
+where $M$ is the absolute magnitude, $m$ is the apparent magnitude, and $d_{pc}$ is the distance in parsecs. We defined a function `absmag` to put apparent magnitude and distance values through this formula:
+
+```{r}
+absmag <- function(mg, dist) {
+  log_term <- log10(dist/10)
+  M = mg - 5*log_term
+  return(M)
+}
+```
+
+We then applied this function to both data sets and made a new column, `abs_mag`, with the results.
+
+```{r}
+filtered_cluster1 <- filtered_cluster1 %>% 
+  mutate(abs_mag = absmag(mg, parsec))
+filtered_cluster2 <- filtered_cluster2 %>% 
+  mutate(abs_mag = absmag(mg, parsec))
+```
+
+We could then plot `br_dif` against `abs_mag` for each of our filtered data sets to create the HR diagrams. We reversed the y-axis on both diagrams so brighter (larger magnitude) stars were higher up on the graph, making it more intuitive to look at. The "elbows" we referred to are indicated by red arrows.
+
+```{r}
+#| code-fold: true
+#| warning: false
+ggplot(filtered_cluster1, aes(br_dif, abs_mag)) + 
+  geom_point(color = "purple4") + 
+  scale_y_reverse() +
+  ggtitle("HR Diagram of Cluster 1") +
+  xlab("Difference of Blue and Red Band Magnitudes") +
+  ylab("Absolute Magnitude of Green Band") + 
+  theme_minimal() +
+  geom_segment(aes(x = 0.7, y = 0, xend = 0.75, yend = 2, color = "red"), 
+               arrow = arrow()) +
+  theme(legend.position = "none")
+```
+
+```{r}
+#| code-fold: true
+#| warning: false
+ggplot(filtered_cluster2, aes(br_dif, abs_mag)) + 
+  geom_point(color = "purple4") + 
+  scale_y_reverse() +
+  ggtitle("HR Diagram of Cluster 2") +
+  xlab("Difference of Blue and Red Band Magnitudes") +
+  ylab("Absolute Magnitude of Green Band") + 
+  theme_minimal() +
+  geom_segment(aes(x = 0.95, y = 1.5, xend = 0.9, yend = 3, color = "red"), 
+               arrow = arrow()) +
+  theme(legend.position = "none")
+```
+
+Based on the scale of the x-axes, it appeared the elbow of Cluster 1 was farther left, but to double-check we layered the two graphs on top of each other. As indicated by the blue (Cluster 1) and coral (Cluster 2) vertical lines, the elbow of Cluster 1 was indeed farther left than that of Cluster 2. This meant Cluster 1 was younger, which did not support our earlier hypothesis.
+
+```{r}
+#| code-fold: true
+#| warning: false
+ggplot(filtered_cluster1, aes(br_dif, abs_mag)) +
+  geom_vline(aes(xintercept = 0.75), color = "cornflowerblue") +
+  geom_vline(aes(xintercept = 0.87), color = "coral") +
+  geom_point(color = "navy") + 
+  scale_y_reverse() +
+  ggtitle("HR Diagram of Clusters 1 and 2") +
+  xlab("Difference of Blue and Red Band Magnitudes") +
+  ylab("Absolute Magnitude of Green Band") + 
+  theme_minimal() +
+  geom_point(data = filtered_cluster2, aes(br_dif, abs_mag), color = "red") +
+  geom_label(aes(x = 2, y = 3), color = "navy", label = "Cluster 1") +
+  geom_label(aes(x = 2, y = 4), color = "red", label = "Cluster 2")
+```
+
+Since globular clusters are usually older than open clusters, this was confusing. Perhaps Cluster 1 was a particularly concentrated open cluster, or just a particularly young globular cluster. However, that would require data we didn't have, so we left the problem there.
+
+### References
+
+Gohd, Chelsea. "Star Clusters: Inside the Universe's Stellar Collections." *NASA*, 03 May 2023, science.nasa.gov/universe/star-clusters-inside-the-universes-stellar-collections/.
