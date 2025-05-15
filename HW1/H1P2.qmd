@@ -1,0 +1,99 @@
+---
+title: "Orbital Resonance in the Asteroid Belt"
+author:
+  - Gabriella Weis
+  - Conor Vahey
+date: today
+format:
+ html:
+    embed-resources: true
+    theme: cosmo
+    title-block-banner: true
+    warning: false
+mathjax: true
+editor: visual
+---
+
+## Introduction
+
+In this problem, we have been tasked first and foremost with plotting a distribution of the asteroids contained in the file "asteroids.csv" as a function of their average distance from the Sun. This will allow us to visualize the results of their orbital resonance with Jupiter, and help us identify where other gaps in the asteroid belt may have formed due to orbital resonance. To begin, we must load in tidyverse, which contains both ggplot and dplyr. Ggplot will help us create relevant visualizations, and dplyr will assist us in using its verbs to manipulate the data. Below, we unpack tidyverse and prepare the data by reading it in and naming it "asteroids." We will be using R for all analysis in this problem.
+
+```{r, output=FALSE}
+library(tidyverse)
+
+asteroids <- read_csv("C:/Users/glwei/Downloads/asteroids.csv")
+```
+
+## Taking a Look at the Data
+
+In the interest of observing the data and its variables, we used "head()" to get a closer look. This returns the first six rows of the data. As we can see, the semi-major axis is already in AUs, which means we don't have to make any conversions.
+
+```{r}
+head(asteroids)
+```
+
+## Histogram of Asteroids' Semi-major Axes
+
+Now that we have the data and the necessary packages, and we've taken a brief look at "asteroids," we can begin by plotting a histogram of the asteroids' semi-major axes. This will give us a distribution of their distances from the Sun and help us identify major gaps in the asteroid belt. By manipulating the number of bins and specifying a range of 1.75-3.5 AU (the main portion of the asteroid belt), we are able to identify five major dips. The first dip is at about 1.9 AU, the second at 2.5, the third around 2.8, the fourth almost 3, and the fifth about 3.25.
+
+```{r}
+ggplot(asteroids, aes(semimajor_au)) + 
+  geom_histogram(bins = 190, fill = "blue2") +
+  ggtitle("Distribution of Asteroids' Distance From Sun")+
+  xlab("Semi-major Axis (AU)") +
+  scale_x_continuous(limits=c(1.75,3.5))
+```
+
+## Histogram of Asteroids' Semi-major Axes With Resonance Lines
+
+Our next goal with the data is to find where other orbital resonance-based gaps should or would appear in the asteroid belt. This means forming ratios of all irreducible rational numbers with a numerator and denominator less than ten and greater than or equal to one. Then we can use a variation of Kepler's 3rd Law (for resonance) to calculate the asteroid's theoretical semi-major axis (in AUs) and plot it against the original histogram. Here is the simplified equation we used, wherein resonance is the asteroid to Jupiter orbit ratio and all other variables are as written:
+
+$$
+\text{semimajor\_axis} = \left( \frac{\text{jupiter\_period}}{\text{resonance}} \right)^{\frac{2}{3}}
+$$
+The code below demonstrates the process of creating ratios and calculating their semi-major axes in AU for the plot. First, the package "gmp" is loaded for the "gcd" (greatest common denominator) function. There is a function for calculating semi-major axes (AU), a function that creates valid resonance ratios, and the creation of a dataframe that combines the orbital resonance ratios with the calculated semi-major axes. This dataframe is called "resonance_data" and will be used to create our last histogram plot. We can look at its first six rows using "head()."
+
+```{r}
+library(gmp) #for gcd function
+
+jupiter_period <- 11.86
+lower_bound <- 1.75
+upper_bound <- 3.5
+
+#function to match resonance with semi-major axis in AU
+find_semimajor_au <- function(resonance) {
+  return((jupiter_period / resonance)^(2/3))
+}
+
+#function to find all valid ratios and corresponding semimajor axis within bounds
+find_resonance_locations <- function() {
+  valid_ratios <- expand.grid(num = 1:9, den = 1:9)
+  valid_ratios <- valid_ratios[valid_ratios$num > valid_ratios$den & 
+  sapply(1:nrow(valid_ratios), function(i) gcd(valid_ratios$num[i], valid_ratios$den[i]) == 1), ]
+  
+#create a data frame with the valid ratios and their corresponding semi-major axis
+  resonance_locations <- valid_ratios %>%
+    mutate(resonance = num / den,
+    semimajor_au = find_semimajor_au(resonance)) %>%
+    filter(semimajor_au >= lower_bound & semimajor_au <= upper_bound) %>%
+    select(num, den, semimajor_au)
+  
+  return(resonance_locations)
+}
+
+#get the resonance locations
+resonance_data <- find_resonance_locations()
+
+head(resonance_data)
+```
+
+Now that we have the "resonance_data" dataframe, we can plot the resonance locations over our previous histogram using ggplot. We create the histogram from the "asteroids" dataset and use "geom_vline()" to overlay our resonance lines. After recomputing some bins (adding more), we can see more than just the original five dips from the first histogram; there may be one around 2.25 AU, 2.7, and maybe even a little after 3, though it's hard to tell.
+
+```{r}
+ggplot(asteroids, aes(semimajor_au)) + 
+  geom_histogram(bins = 300, fill = "blue2") +
+  geom_vline(data = resonance_data, aes(xintercept = semimajor_au)) +
+  scale_x_continuous(limits = c(1.75, 3.5)) +
+  ggtitle("Resonance Locations") +
+  xlab("Semi-major Axis (AU)") + theme_minimal()
+```

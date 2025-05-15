@@ -1,0 +1,228 @@
+---
+title: "Estimating Jupiter's Mass"
+author:
+  - Gabriella Weis
+  - Conor Vahey
+date: today
+format:
+ html:
+    embed-resources: true
+    theme: cosmo
+    title-block-banner: true
+    warning: false
+editor: visual
+---
+
+## Introduction
+
+Upon obtaining two weeks worth of observed positions of Jupiter and one of its moons, we have been tasked with estimating the mass of the planet. To begin this exploration, we need to load the necessary packages and provided data. Tidyverse is a collection of packages containing ggplot, which will aid us in visualizing the data. The data is contained within two files; one is called "jupiter.csv" and will be renamed "jupiter," and the other, "moon.csv," will be renamed "moon." Below, both the packages and the data are accessed for further use. We will be using R for all analysis in this problem.
+
+```{r, output=FALSE}
+library(tidyverse)
+
+jupiter <- read_csv("C:/Users/glwei/Downloads/jupiter.csv")
+moon <- read_csv("C:/Users/glwei/Downloads/moon.csv")
+```
+
+## Taking a Look at the Data
+
+In the interest of observing the data and its variables, we used "head()" to get a closer look. This returns the first six rows of each dataset. Notice the way the RA and DEC columns have numbers split by spaces. This is due to the nature of the units, and will be important for furthering our calculations.
+
+```{r}
+head(jupiter)
+head(moon)
+```
+
+## Converting Units to Degrees
+
+Because both datasets have their Right Ascension (referred to as RA) and Declination (referred to as DEC) information in something other than degrees, we have to convert them in order to make use of them. The RA variable is recorded in hours, minutes, and seconds, and the DEC variable is recorded in degrees, arc-minutes, and arc-seconds.
+
+To start converting, we will attend to the RA columns for both datasets. This means creating a function that will first split the RA observations by spaces and assign them to the vector "parts" (remember that this is because RA is measured in hours, minutes, and seconds in both datasets, with the difference in category only divided by spaces). Next, the function will use "parts" to access each section of the observation (for example, part\[1\] selects hours) and insert it into the formula for degree conversion. The function will return the RA observation in degrees. In order to apply this function, we created new RA columns called "jup_RA_degree" in the jupiter dataset and "mo_RA_degree" in the moon dataset; these new columns will store the application of the function to both original RA columns.
+
+The degree equation for converting RA in hours, minutes, and seconds to degrees is as follows:
+
+$$
+RA(degrees) = 15(hours + (minutes/60) + (seconds/3600))
+$$
+
+```{r}
+convert_ra <- function(ra_string) {
+  #split by spaces
+  parts <- as.numeric(strsplit(ra_string, " ")[[1]])
+  #degrees formula
+  degree_ra = 15 * (parts[1] + parts[2] / 60 + parts[3] / 3600)
+  return(degree_ra)
+}
+
+#create new RA columns in respective datasets using the function
+jupiter$jup_RA_degree <- sapply(jupiter$RA, convert_ra)
+moon$mo_RA_degree <- sapply(moon$RA, convert_ra)
+```
+
+Next, we will attend to the DEC columns for both datasets. This function will act in a similar way to the "convert_ra" function, but the units and conversion equation are different. Once again, we split each observation by parts. This time we also need to preserve the sign, since some observations are negative. In order to do this, we extract the first character of the observation. If it is a minus sign, "sign" is set to -1. If not, it is set to 1. Lastly, the function uses the equation for degree conversion to produce a new DEC column for each dataset in decimal degrees. It is applied in the same way as the "convert_ra" function.
+
+The degree equation for converting DEC in degrees, arc-minutes, and arc-seconds to a decimal degree is as follows:
+
+$$
+DEC(degrees) = degrees + (arcmins/60) + (arcsecs/3600)
+$$
+
+```{r}
+convert_dec <- function(dec_string) {
+  #split by spaces
+  parts <- as.numeric(strsplit(dec_string, " ")[[1]])
+  #preserve sign
+  sign <- ifelse(substr(dec_string, 1, 1) == "-", -1, 1)
+  #degrees formula
+  degree_dec = sign * (abs(parts[1]) + parts[2] / 60 + parts[3] / 3600)
+  return(degree_dec)
+}
+
+#create new DEC columns in respective datasets using the function
+jupiter$jup_DEC_degree <- sapply(jupiter$DEC, convert_dec)
+moon$mo_DEC_degree <- sapply(moon$DEC, convert_dec)
+```
+
+## Calculating Relative Position
+
+To give us a little bit of direction, here is the mass equation we will work toward, wherein *a* is the average separation of the objects in AU, *p* is the orbital period in years, and both M's are in solar masses, with M~1~ representing one object and M~2~ the other. For the Sun and most planets, the mass of the larger object is far greater than that of the smaller one, so for all intents and practical purposes, we are able to treat the M's as a combined mass.
+
+$$
+a^3/p^2 = (M_1 + M_2)☉
+$$
+
+Now that we have the positions in degrees, the next step here is finding the difference between Jupiter and its moon's angular positions (once again, these are in degrees). This will give us the moon's position relative to the planet, and will be useful for visualizing the ellipse and identifying its semi-major axis (which we need for the mass equation).
+
+We created a new dataframe called "relative position" that is made up of variables from both the "jupiter" and "moon" datasets. In this case, our variables of interest are "RA_dif," or the moon's RA in degrees subtracted by Jupiter's RA in degrees, and "DEC_dif," or the moon's DEC in degrees subtracted by Jupiter's DEC in degrees (for every observation). Using "head()," we can take a quick look at this new dataframe.
+
+```{r}
+relative_position <- data.frame(JD = jupiter$JD, RA_dif = moon$mo_RA_degree - jupiter$jup_RA_degree, DEC_dif = moon$mo_DEC_degree - jupiter$jup_DEC_degree, Dist_AU = jupiter$Dist_AU)
+
+head(relative_position)
+```
+
+## Visualizing the Ellipse
+
+Now that we have the relative positions, we can plot the Relative RA (in degrees) against the Relative DEC (in degrees) using ggplot. We created a title and labels for both axis. The result of this plot is what appears to be a side-on view of the moon's orbit, which seems to be an ellipse.
+
+```{r}
+ggplot(relative_position, aes(RA_dif, DEC_dif)) +
+  labs(title = "Jupiter's Moon's Relative Distance to Jupiter",
+       x = "Relative Right Ascension (degrees)",
+       y = "Relative Declination (degrees)") +
+  geom_point(color = "purple2") + theme_minimal()
+```
+
+## Fitting the Ellipse
+
+Recall that originally, we needed this ellipse for its semi-major axis. This means we must accurately calculate said semi-major axis (in degrees). To do so, we will use a pre-constructed ellipse-fitter.
+
+First we call the external file "fitellipse.r," which contains the necessary code. Then we will fit the ellipse using the provided "fit_ellipse()" function and print out the results ("res"). This will return a variety of information, but what we are interested is the semi-major axis, which happens to be 0.1312755 degrees. For simplicity's sake and future use, we created the variable "semi_major" to store this number.
+
+```{r}
+#calling the file
+source("fitellipse.r")
+
+#fitting the ellipse
+res = fit_ellipse(relative_position$RA_dif, relative_position$DEC_dif)
+#printing result
+res
+
+#assigning semi-major axis value to a variable
+semi_major = 0.1312755
+```
+
+## Calculate Average Distance to Jupiter
+
+Because we need the average separation between Jupiter and its moon to be in AUs for the mass equation, we need to use the semi-major axis and average distance to Jupiter to obtain this number. The equation for this is as follows, with *distance* in AUs, and *θ* as the semi-major axis in degrees.
+
+$$
+θ/360 = separation/2π(distance)
+$$
+
+Which can be simplified to:
+
+$$
+separation = (π \times distance \times θ)/180
+$$
+
+We already have the semi-major axis in degrees, so now we will calculate the average distance to Jupiter by taking the mean of the entire column of Jupiter's "Dist_AU" variable (Distance from Earth in AUs) from its dataset. The result was 5.500493 AUs, which we assigned to the variable "average_dist."
+
+```{r}
+average_dist <- mean(jupiter$Dist_AU, na.rm = TRUE)
+average_dist
+```
+
+## Calculate Separation
+
+Now that we have both the average distance to Jupiter in AUs ("average_dist") and the semi-major axis in degrees ("semi-major"), we can calculate the average separation in AUs. The result was 0.01260267 AUs, and we assigned it to the variable "sep" for future use.
+
+```{r}
+sep <- (pi*average_dist*semi_major)/180
+sep
+```
+
+## Calculate Orbital Period
+
+We've almost got everything we need to calculate the mass of Jupiter! All that remains to be calculated is the orbital period in years. To get a good visualization of this, we will plot RA (in degrees) against Jupiter Day (JD). In order to more easily identify peaks (relative maxima) so we can calculate how much time elapses between them, we will download the package "pracma." Then we will find the peaks, create the ggplot visualization, and use selection across peak indexes to zero in on one orbital period. We found that one orbital period is 16.66667 days and 0.0456621 years. The variable "per_years" contains the orbital period in years.
+
+```{r}
+#loading the necessary package for peaks
+library(pracma)
+
+#name columns for simplicity
+col1 <- jupiter$JD
+col2 <- relative_position$RA_dif
+#find indices of peaks
+peaks <- findpeaks(col2)
+
+#plot RA vs JD
+ggplot() +
+  geom_line(aes(col1,col2), color = "blue") +
+  ggtitle("Right Ascension vs. Julian Day") +
+  xlab("Julian Day") +
+  ylab("Right Ascension (degrees)") +
+  theme_minimal()
+
+#calculating the length of one orbit
+first_peak <- peaks[1, 2]  #first peak index
+second_peak <- peaks[2, 2]  #second peak index
+
+#calculate the period in days
+period <- col1[second_peak] - col1[first_peak]
+#print out period (days)
+period
+
+#convert to years
+per_years <- period/365
+#print out period (years)
+per_years
+```
+
+# Calculate Jupiter's Mass
+
+Now we have everything for our mass equation! As a reminder, this is what it looks like:
+
+$$
+a^3/p^2 = (M_1 + M_2)☉
+$$
+
+Our estimated mass of Jupiter is 0.0009600109 solar mass. In order to make this a little more readable as far as units go, we can convert it to kg using the mass of the sun, which is 1.988E+30 kg. This came out to be about 1.908502e+27 kg. We assigned 0.0009600109 to the variable "mass_solar" and 1.908502e+27 to the variable "mass_kg."
+
+```{r}
+mass_solar <- (sep^3)/(per_years^2)
+mass_solar
+
+mass_kg <- mass_solar*1.988E+30
+mass_kg
+```
+
+## Check Percentage Error
+
+The last step of the process is checking our percent error with the true mass of Jupiter, which is 0.00095523138832998 solar mass, or 1.8986E+27 kg. We found our percentage error to be approximately 0.5%.
+
+```{r}
+percentage_error <- ((abs(mass_solar - 0.00095523138832998))/0.00095523138832998)*100
+
+percentage_error
+```

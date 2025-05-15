@@ -1,0 +1,105 @@
+---
+title: "Calculating Flux for Asteroids Hitting the Moon"
+author:
+  - Gabriella Weis
+  - Conor Vahey
+date: today
+format:
+ html:
+    embed-resources: true
+    theme: cosmo
+    title-block-banner: true
+    warning: false
+editor: visual
+---
+
+# Introduction
+
+In this problem, we are provided with two datasets for the purpose of deriving an impact flux rate for asteroids hitting the Moon: "impacts.csv" and "obs_nights.csv." "Impacts.csv" is a data set of asteroids that hit the Moon, and "obs_nights.csv" gives information on how exactly the Moon was being observed, such as the area being observed. We can use these datasets to calculate the impact flux rate of asteroids hitting the Moon. To start, we need to load the necessary packages. We will only be using tidyverse, a collection of packages including ggplot, which helps us create accurate and simple graphs, and dplyr, which will be useful for cleaning the data. We also must load said data, naming them impacts and obs_nights. We will be using R for all analysis in this problem.
+
+```{r, output=FALSE}
+library(tidyverse)
+
+impacts <- read_csv("C:/Users/glwei/Downloads/impacts.csv")
+obs_nights<- read_csv("C:/Users/glwei/Downloads/obs_nights.csv")
+```
+
+## Taking a Look at the Data
+
+In the interest of observing the data and its variables, we used "head()" to get a closer look. This returns the first six rows of each dataset. There are several important variables here that we will be using in our analysis and equations, including "Rmag," "Elapsed_Time_sec," and "Avg_Area_km2."
+
+```{r}
+head(impacts)
+head(obs_nights)
+```
+
+# Part A: Computing the Impact Flux
+
+### Cleaning up the Data
+
+The first thing we must do is clean up our data to ensure it only includes legitimate impacts and observations. An impact is legitimate if it has a listed "Rmag" value, which is a number that measures the brightness of an object, with lower values indicating brighter objects. We can remove illegitimate impacts by simply removing all impacts with no R magnitude (Rmag), and assigning this to a new dataset named "legitImpacts."
+
+```{r}
+legitImpacts <- impacts %>%
+  subset(!is.na(Rmag))
+```
+
+The observed nights dataset ("obs_nights") includes nights that are redundant, which we should also remove from our data set. We can see if a night is useful with the Ignored column. If an entry is set to "TRUE," the night is redundant and can be filtered out. This will leave us with only observations that were not ignored, and we can assign this to a new dataset under the title "goodObs."
+
+```{r}
+goodObs <- obs_nights %>%
+  filter(Ignored==FALSE)
+```
+
+## Calculating the Flux
+
+Now that our datasets have been cleaned up and only include the observations that we want to use, we can calculate the overall impact flux, which is the frequency of asteroid impacts over a specified area and time period. To calculate flux, we take the total number of legitimate impacts (Num_impacts) divided by the average observation area (Avg_Area_km2, in km squared) divided by the total observation time (Elapsed_Time_sec, in seconds), found under our new "goodObs" dataset. This will give us a flux rate of 3.6881e-11 impacts per square kilometer per second. The equation is reiterated below:
+
+$$
+flux = impacts/area(km^2)/time(seconds)
+$$
+
+```{r}
+n_impacts = nrow(legitImpacts) #number of legitimate impacts
+avg_area = mean(goodObs$Avg_Area_km2) #average observation area
+total_time = sum(goodObs$Elapsed_Time_sec) #total observation time
+
+#equation
+flux = n_impacts/avg_area/total_time
+flux
+```
+
+# Part B: Revising our Flux Calculation
+
+While our flux rate is based in real data, it is important to note that it is not quite accurate, as the impact flux someone observes greatly depends on their equipment. Better equipment would be capable of spotting dimmer impacts, resulting in a higher impact flux rate. To correct for this observational bias, we must first identify the threshold where asteroids are no longer reliably detected. This can be done by creating a histogram of R magnitude.
+
+Generally speaking, as magnitude increases, the number of impacts should increase exponentially, so the cutoff is the point where magnitude starts to deviate from this pattern. When looking at the histogram, we see our first drop at the magnitude of 8. This drop at magnitude 8 indicates that asteroids with lower magnitudes than these (brighter objects) are reliably detected, while those with higher magnitudes (dimmer objects) are likely missed by our equipment, leading to an underestimation of the true impact flux rate.
+
+```{r}
+ggplot(legitImpacts, aes(Rmag)) +
+  geom_histogram(bins = 10, fill = "maroon4") +
+  ggtitle("Histogram of R Magnitude in Asteroids") +
+  xlab("R Magnitude") +
+  ylab("Count") +
+  theme_light()
+```
+
+In order to counteract this detection error and calculate the overall impact flux of meteors of some magnitude or brighter, we simply filter out impacts above or equal to 8 and assign this to a new data set which we name "filteredImpacts."
+
+```{r}
+filteredImpacts <- legitImpacts %>%
+  filter(Rmag <= 8)
+```
+
+## Recalculating the Impact Flux Rate
+
+With our new dataset of asteroid impacts on the Moon with an R magnitude of 8 or less, we can finally recalculate our flux rate as the overall impact flux of meteors with a magnitude of 8 or brighter. Using the same equation as before, we get an answer of 2.557876e-11 impacts per square kilometer per second.
+
+```{r}
+n_impacts = nrow(filteredImpacts) #number of legitimate impacts
+
+#equation
+flux = n_impacts/avg_area/total_time
+flux
+```
+
