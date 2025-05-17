@@ -1,0 +1,1245 @@
+---
+title: "All Milestones"
+author: "Gabriella Weis and Mason Polier"
+date: "2024-12-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Disclaimer and Data Description
+
+The categorical data in this dataset proved a bit difficult to work with, and in order to address some parts of the questions we wished to explore, it was necessary to make use of some methods we have not fully covered in class. I expect the numeric data in this dataset to be a lot easier to work with.
+For example, the two datasets are different in the way they record observations. The GDP dataset has observations based on Country. That is, every observation is a Country. However, the air quality dataset is different; instead, every observation is a city, and Country becomes another categorical variable. This meant that while every city listed in the dataset had an AQI Category (categorical), there was no averaged AQI Category for the entire Country. Because one of our questions required it, we went through the difficult process of averaging the numerical AQI values per Country and converting them into a general Country-wide AQI Category.
+Another issue with the data was the NA values for some Countries. We removed those values when creating bar graphs, but it makes the distribution not entirely accurate since we're missing data. For example, the United States is missing all air quality data so we couldn't use it for many of the bar graphs and tables below!
+We also adjusted some questions to make them easier to explore.
+With these things addressed and without further ado, let the data exploration begin.
+
+# Milestone #4
+
+### Setting Up
+
+Load in tidyverse.
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(ggplot2)
+```
+
+Import the datasets and rename them.
+
+```{r}
+library(readxl)
+gdp <- read_excel("C:/Users/glwei/OneDrive/Documents/Data Sci, Intro to R/gdp_percentages_2023.xlsx")
+air <- read.csv("C:/Users/glwei/OneDrive/Documents/Data Sci, Intro to R/global air pollution dataset.csv")
+```
+
+
+### Q1: What is the distribution of cities across AQI categories (Good, Moderate, Unhealthy, etc.) in countries with a GDP over $1 trillion? How does this compare with countries with a GDP under $1 trillion? What does the distribution of cities in each category look like across countries with a GDP over $1 trillion?
+
+Join data by country.
+
+```{r}
+combined_data <- left_join(gdp, air, by = "Country")
+```
+
+Reorder AQI factor levels.
+
+```{r}
+combined_data$`AQI.Category`<- factor(combined_data$`AQI.Category`, 
+                              levels = c("Good", "Moderate", "Unhealthy for Sensitive Groups", "Unhealthy", "Very Unhealthy", "Hazardous"))
+```
+
+Filter for Countries with a GDP over $1 trillion.
+
+```{r}
+gdp1t <- combined_data %>% 
+  filter(GDP > 1000)
+
+gdp1t
+```
+
+Make a table of counts.
+
+```{r}
+tableAqi <- table(gdp1t$AQI.Category)
+print(tableAqi)
+```
+```{r}
+library(knitr)
+kable(tableAqi, col.names = c('AQI Category', 'Count'),
+      caption = "Distribution of Cities in Countries with a GDP Over $1 Trillion Across AQI Categories")
+```
+
+Make a table of probabilities.
+
+```{r}
+ptableAqi <- prop.table(tableAqi)
+print(ptableAqi)
+```
+```{r}
+kable(ptableAqi, col.names = c('AQI Category', 'Relative Frequency'),
+      caption = "Probability Distribution of Cities in Countries with a GDP Over $1 Trillion Across AQI Categories")
+```
+
+#### Description:
+
+In cities in countries with a GDP over $1 trillion, it appears that Good and Moderate AQI ratings are the most common, with Unhealthy ratings coming in third.
+Percent of cities in Hazardous:
+(168/11844) x 100 = 1.418%
+Percent of cities in Very Unhealthy:
+(219/11844) x 100 = 1.849%
+The probability table contains marginal probabilities because they all add up to one.
+
+
+Make a bar graph.
+
+```{r}
+library(ggplot2)
+ggplot(gdp1t, aes(AQI.Category, fill = AQI.Category)) + 
+  geom_bar() +
+  theme(axis.text.x = element_blank()) +
+  labs(
+    title = "Cities in Countries with a GDP Over $1 Trillion Across AQI Cats.",
+    x = "AQI Category",
+    y = "City Count"
+  )
+```
+
+#### Description:
+
+Our analysis of the one way table is visible in the bar graph, which represents the distribution of city AQI category in countries with a GDP over $1 trillion.
+I removed the categories from the x-axis and used fill by AQI category to make the graph easier to read.
+
+
+Filter for Countries with a GDP under $1 trillion.
+
+```{r}
+gdput <- combined_data %>% 
+  filter(GDP < 1000)
+
+gdput
+```
+
+Make a table of counts.
+
+```{r}
+tableAqi2 <- table(gdput$`AQI.Category`)
+print(tableAqi2)
+```
+
+```{r}
+library(knitr)
+kable(tableAqi2, col.names = c('AQI Category', 'Count'),
+      caption = "Distribution of Cities in Countries with a GDP Under $1 Trillion Across AQI Categories")
+```
+
+Make a table of marginal probabilities.
+
+```{r}
+ptableAqi2 <- prop.table(tableAqi2)
+print(ptableAqi2)
+```
+```{r}
+kable(ptableAqi2, col.names = c('AQI Category', 'Relative Frequency'),
+      caption = "Probability Distribution of Cities in Countries with a GDP Under $1 Trillion Across AQI Categories")
+```
+
+#### Description:
+
+In cities in countries with a GDP under $1 trillion, it appears that Moderate and Good AQI ratings are the most common, with Unhealthy for Sensitive Groups ratings coming in third.
+Percent of cities in Hazardous:
+(18/6654) x 100 = 0.271%
+Percent of cities in Very Unhealthy:
+(57/6654) x 100 = 0.857%
+The probability table contains marginal probabilities because they all add up to one.
+The percentages of cities with Hazardous and Unhealthy ratings are lower in countries with a GDP under $1 trillion than those in countries with a GDP over $1 trillion.
+
+
+Make a bar graph.
+
+```{r}
+ggplot(gdput, aes(`AQI.Category`, fill = `AQI.Category`)) + 
+  geom_bar() +
+  theme(axis.text.x = element_blank()) +
+  labs(
+    title = "Cities in Countries with a GDP Under $1 Trillion Across AQI Cats.",
+    x = "AQI Category",
+    y = "City Count"
+  )
+```
+
+#### Description:
+
+The bar graph matches our analysis of the table; notice the shorter blue bar?
+I removed the categories from the x-axis and used fill by AQI category to make the graph easier to read.
+
+
+Make a table comparing the number of cities in each AQI Category based on Countries with a GDP over $1 trillion.
+
+```{r}
+tableAqi3 <- table(gdp1t$Country,gdp1t$`AQI.Category`)
+# additionally, remove rows with no data
+tableAqi3 <- tableAqi3[rowSums(tableAqi3 != 0) > 0, ]
+print(tableAqi3)
+```
+```{r}
+kable(tableAqi3,
+      caption = "Distribution of Cities Across AQI Categories based on Countries with a GDP Over $1 Trillion")
+```
+
+#### Description:
+
+This two-way table shows the distribution of cities across AQI categories in cities with a GDP over $1 trillion. Brazil and the Russian Federation appear to have the most cities with a Good rating and India has the most cities with Hazardous, Very Unhealthy, Unhealthy, and Unhealthy for Sensitive Groups ratings.
+Columns = AQI Category rating
+Rows = Countries
+Counts = Cities
+
+
+### Q2: How does the average AQI value vary among countries based on their primary GDP sector allocation (Agriculture, Industry, Manufacturing, Services)? (numeric variable across categorical variable)
+
+Use mutate to create new variables (max_percentage and max_sector). Max_sector is a new categorical variable listing the sector with the highest percentage of GDP allocation (max_percentage) in its respective country.
+
+```{r}
+highest_section <- gdp %>%
+  mutate(
+    max_percentage = pmax(Industry, Services, Manufacturing, Agriculture, na.rm = TRUE),
+    max_sector = case_when(
+      max_percentage == Industry ~ "Industry",
+      max_percentage == Services ~ "Services",
+      max_percentage == Manufacturing ~ "Manufacturing",
+      max_percentage == Agriculture ~ "Agriculture",
+      TRUE ~ NA_character_
+    )
+  )
+
+highest_section
+```
+
+Create a new average AQI value column.
+
+```{r}
+averageAqi <- air %>%
+  group_by(Country) %>%
+  summarize(average_aqi = mean(AQI.Value, na.rm = TRUE))
+
+averageAqi
+```
+
+Join the two dataframes on Country.
+
+```{r}
+maxpAqi <- highest_section %>%
+  left_join(averageAqi, by = "Country")
+
+maxpAqi
+```
+
+Make a table of counts to see what the most popular maximum GDP allocation is.
+
+```{r}
+maxtable <- table(maxpAqi$max_sector)
+print(maxtable)
+```
+```{r}
+kable(maxtable, caption = "Max GDP Allocation Sector")
+```
+
+#### Description:
+
+This one-way table shows the most popular maximum GDP allocation among all countries. It appears that services is the most popular sector for countries to allocate the majority of their money towards.
+
+
+Create a new variable based on average Country AQI values called aqi_category and make a new dataset.
+
+```{r}
+# breakpoints and labels
+breaks <- c(-Inf, 50, 100, 150, 200, 300, Inf)
+labels <- c("Good", "Moderate", "Unhealthy for Sensitive Groups", "Unhealthy", "Very Unhealthy", "Hazardous")
+
+# make categories
+aqi_categories <- cut(averageAqi$average_aqi, breaks = breaks, labels = labels, right = FALSE)
+
+ranged_data <- data.frame(average_aqi = averageAqi$average_aqi, aqi_category = aqi_categories)
+head(ranged_data)
+```
+
+Join this new data with the max sector data on average AQI value.
+
+```{r}
+final <- maxpAqi %>%
+  left_join(ranged_data, by = "average_aqi")
+
+final
+```
+
+Get rid of NA values.
+
+```{r}
+final <- na.omit(final)
+
+final
+```
+
+Make a bar graph.
+
+```{r}
+ggplot(final, aes(max_sector, fill = aqi_category)) +
+  geom_bar(position = "fill") +
+  labs(
+    title = "Average Category vs. Max. Sector for GDPs Over $1 Trillion",
+    x = "Sector With Highest GDP Allocation",
+    y = "Percent of Countries")
+```
+
+#### Description:
+
+This stacked bar graph shows the layout of average AQI category ratings based on countries' maximum GDP sector allocations. It appears that over 50% percent of countries that allocate most of their GDP to agriculture have an average AQI rating of Moderate. It also appears that compared to other countries with other maximum sectors, countries that allocate most of their GDP to Industry have more Unhealthy ratings.
+I used position = fill in this graph so I could go off of percentages and see what percent of countries had what AQI rating based off of max sector.
+
+
+###Q3: What are the most common max sectors across AQI Categories?
+
+Rename factor levels for graphing.
+
+```{r}
+final <- final %>%
+  mutate(aqi_category = recode(aqi_category, "Good" = "G", "Moderate" = "M", "Unhealthy for Sensitive Groups" = "USG", "Unhealthy" = "U", "Very Unhealthy" = "VU","Hazardous" = "H"))
+
+final
+```
+
+Make a bar graph.
+
+```{r}
+ggplot(final, aes(aqi_category, fill = max_sector)) +
+  geom_bar(position = "fill") +
+  labs(
+    title = "Max Sector vs. Average AQI (GDP Over $1 Trillion)",
+    x = "Average AQI Category",
+    y = "Percent of Countries")
+```
+
+#### Description:
+
+This stacked bar graph shows the layout of maximum GDP sector allocations based on countries' average AQI ratings. It seems to be a less meaningful graph since most of the max sectors are Services, but we can still glean some things. For example, it seems that countries with average AQI ratings of Unhealthy and Unhealthy for Sensitive Groups also appear at a higher percentage with max sectors in industry.
+I used position = fill in this graph so I could go off of percentages and see what percent of countries had what max sector based off average AQI Category. Clearly services is the most popular max sector.
+
+
+### Q4: How does PM2.5 AQI category differ between cities in countries that allocate a higher percentage of their GDP to agriculture (over 20%) versus those that allocate a lower percentage?
+
+Filter for countries with agriculture allocation over 20%.
+
+```{r}
+agriculture <- combined_data %>%
+  select(Country, City, Agriculture, PM2.5.AQI.Category) %>%
+  filter(Agriculture > 20)
+
+agriculture
+```
+
+```{r}
+overgood <- agriculture %>%
+  filter(PM2.5.AQI.Category == "Good")
+overgood
+
+overmod <- agriculture %>%
+  filter(PM2.5.AQI.Category == "Moderate")
+overmod
+
+#overgood:
+#269/1332 = 0.201952 = 20.2%
+#overmod:
+#532/1332 = 0.3993994 = 39.94%
+```
+
+Create a table of counts.
+
+```{r}
+agriTable <- table(agriculture$Country, agriculture$PM2.5.AQI.Category)
+# additionally, remove rows with no data
+agriTable <- agriTable[rowSums(agriTable != 0) > 0, ]
+
+agriTable
+```
+```{r}
+kable(agriTable,
+      caption = "PM2.5 Category Distribution of Cities With Over 20% of GDP Allocated to Agriculture")
+```
+
+Create a table of conditional probabilities.
+
+```{r}
+pagriTable <- prop.table(agriTable, margin = 1)
+print(pagriTable)
+```
+```{r}
+kable(pagriTable,
+      caption = "PM2.5 Category Distribution of Cities With Over 20% of GDP Allocated to Agriculture")
+```
+
+#### Description:
+
+These two-way tables are a little ugly, but the probability tables are conditional by row, meaning they add up across rows. For example, approximately 61% of the Aphgan cities in this dataset have Moderate AQI ratings for PM2.5 levels.
+
+
+Reorder factor levels.
+
+```{r}
+agriculture$PM2.5.AQI.Category <- factor(agriculture$PM2.5.AQI.Category, 
+                              levels = c("Good", "Moderate", "Unhealthy for Sensitive Groups", "Unhealthy", "Very Unhealthy", "Hazardous"))
+```
+
+Rename factor levels for graphing.
+
+```{r}
+agriculture <- agriculture %>%
+  mutate(PM2.5.AQI.Category = recode(PM2.5.AQI.Category, "Good" = "G", "Moderate" = "M", "Unhealthy for Sensitive Groups" = "USG", "Unhealthy" = "U", "Very Unhealthy" = "VU","Hazardous" = "H"))
+
+agriculture
+```
+
+Make a bar graph. (Had to replace fill = Country with fill = PM2.5.AQI.Category in aesthetics because there were too many Countries).
+
+```{r}
+ggplot(agriculture, aes(PM2.5.AQI.Category, fill = PM2.5.AQI.Category)) + 
+  geom_bar() +
+  theme(
+    legend.text = element_text(size=5),
+    legend.title = element_text(size=7),
+    legend.key.size = unit(0.2, "cm")
+  ) +
+  labs(
+    title = "City PM2.5 Category (Over 20% of GDP in Agriculture)",
+    x = "City PM2.5 Category",
+    y = "City Count",
+  )
+```
+
+#### Description:
+
+This stacked bar graph represents the distribution of cities among particulate matter 2.5 (PM2.5) Categories for countries with over 20% of their GDP allocated to agriculture.
+
+
+Filter for countries with agriculture allocation under 20%.
+
+```{r}
+agricultureU <- combined_data %>%
+  select(Country, City, Agriculture, PM2.5.AQI.Category) %>%
+  filter(Agriculture < 20)
+
+agricultureU
+```
+
+Create a table of counts.
+
+```{r}
+undTable <- table(agricultureU$Country, agricultureU$PM2.5.AQI.Category)
+# additionally, remove rows with no data
+undTable <- undTable[rowSums(undTable != 0) > 0, ]
+print(undTable)
+```
+```{r}
+kable(undTable,
+      caption = "PM2.5 Category Distribution of Cities With Under 20% of GDP Allocated to Agriculture")
+```
+
+Create a table of conditional probabilities.
+
+```{r}
+pundTable <- prop.table(undTable, margin = 1)
+print(pundTable)
+```
+```{r}
+kable(pundTable,
+      caption = "PM2.5 Category Distribution of Cities With Under 20% of GDP Allocated to Agriculture")
+```
+
+#### Description:
+
+These two-way tables are once again a little ugly, but the probability tables are conditional by row, meaning they add up across rows. For example, approximately 88% of the Albanian cities in this dataset have Moderate AQI ratings for PM2.5 levels.
+
+
+Reorder factor levels.
+
+```{r}
+agricultureU$PM2.5.AQI.Category<- factor(agricultureU$PM2.5.AQI.Category, 
+                              levels = c("Good", "Moderate", "Unhealthy for Sensitive Groups", "Unhealthy", "Very Unhealthy", "Hazardous"))
+```
+
+Rename factor levels for graphing.
+
+```{r}
+agricultureU <- agricultureU %>%
+  mutate(PM2.5.AQI.Category = recode(PM2.5.AQI.Category, "Good" = "G", "Moderate" = "M", "Unhealthy for Sensitive Groups" = "USG", "Unhealthy" = "U", "Very Unhealthy" = "VU","Hazardous" = "H"))
+
+agricultureU
+```
+
+```{r}
+undergood <- agricultureU %>%
+  filter(PM2.5.AQI.Category == "G")
+head(undergood)
+
+undermod <- agricultureU %>%
+  filter(PM2.5.AQI.Category == "M")
+head(undermod)
+
+#undergood:
+#7700/17167 = 0.448535 = 44.85%
+#undermod:
+#6150/17167 = 0.3582455 = 35.82%
+```
+
+Make a bar graph. (Had to once again replace fill = Country with fill = PM2.5.AQI.Category in aesthetics because there were too many Countries).
+
+```{r}
+ggplot(agricultureU, aes(PM2.5.AQI.Category, fill = PM2.5.AQI.Category)) + 
+  geom_bar() +
+  theme(
+    legend.text = element_text(size=5),
+    legend.title = element_text(size=7),
+    legend.key.size = unit(0.2, "cm")
+  ) +
+  labs(
+    title = "City PM2.5 Category (Under 20% of GDP in Agriculture)",
+    x = "City PM2.5 Category",
+    y = "City Count",
+  )
+```
+
+#### Description:
+
+This stacked bar graph represents the distribution of cities among particulate matter 2.5 (PM2.5) Categories for countries with under 20% of their GDP allocated to agriculture. There seems to be (most notably) a higher frequency of Good ratings and a lower frequency of Unhealthy ratings in this bar graph than that of the bar graph representing countries with agricultural GDP allocation over 20%.
+
+# Milestone #5
+
+### Q1: Is there a correlation between overall GDP and a country’s average AQI value? (2 numeric variables)
+
+Filter non-countries.
+
+```{r}
+gdp <- gdp %>%
+  filter(!if_any(everything(), is.na), !Country %in% c("World", "East Asia & Pacific", "Europe & Central Asia", "Latin America & Caribbean", "Middle East & North Africa", "North America", "South Asia", "Sub-Saharan Africa")) %>%
+  arrange(desc(GDP))
+
+gdp
+```
+
+Filter for Countries with a GDP over $1 trillion.
+
+```{r}
+gdp1t <- gdp %>%
+  filter(GDP > 1000)
+
+gdp1t
+```
+
+Create a new average AQI value column.
+
+```{r}
+averageAqi <- air %>%
+  group_by(Country) %>%
+  summarize(average_aqi = mean(AQI.Value, na.rm = TRUE))
+
+averageAqi
+```
+
+Join the two dataframes on Country and get rid of NA values
+
+```{r}
+avg1t <- gdp1t %>%
+  left_join(averageAqi, by = "Country") %>%
+  filter(!is.na(average_aqi))
+
+avg1t
+```
+
+Make a bopxplot.
+
+```{r}
+ggplot(avg1t, aes(average_aqi)) +
+  geom_boxplot(fill = "lightgreen") +
+  labs(x="Average AQI Value")
+```
+
+Get summary stats. Because the distribution is skewed right, find median and IQR.
+
+```{r}
+summary(avg1t$average_aqi)
+```
+Do the same for countries with a GDP under $1 trillion.
+
+Filter for Countries with a GDP under $1 trillion.
+
+```{r}
+gdput <- gdp %>% 
+  filter(GDP < 1000)
+
+gdput
+```
+
+Join the two dataframes on Country and get rid of NA values.
+
+```{r}
+avgut <- gdput %>%
+  left_join(averageAqi, by = "Country") %>%
+  filter(!is.na(average_aqi))
+
+avgut
+```
+
+Make a bopxplot.
+
+```{r}
+ggplot(avgut, aes(average_aqi)) +
+  geom_boxplot(fill = "lightblue")
+```
+
+Get summary stats. Because the distribution is skewed right, find median and IQR.
+
+```{r}
+summary(avgut$average_aqi)
+```
+#### Description:
+
+Because the distributions are both skewed right, we used the median and IQR to describe its center and spread.
+
+**Center:**
+
+  * *For countries with a GDP over $1 trillion:*
+    * Median = 52.53
+  
+  * *For countries with a GDP under $1 trillion:*
+    * Median = 61.20
+
+**Shape:** (can't see as much of the shape as you would be able to with a density plot)
+
+  * *For countries with a GDP over $1 trillion:*
+    * Skewed right
+    
+  * *For countries with a GDP under $1 trillion:*
+    * Skewed right
+
+**Spread:**
+
+  * *For countries with a GDP over $1 trillion:* 
+    * Min = 33.60
+    * Q1 = 43.02
+    * Mean = 73.17
+    * Q3 = 92.16
+    * Max = 152.96
+    * Larger IQR range (49.14)
+  
+  * *For countries with a GDP under $1 trillion:*
+    * Min = 16.00
+    * Q1 = 43.05
+    * Mean = 67.80
+    * Q3 = 84.62
+    * Max = 188.00
+    * Smaller IQR range (41.57)
+
+**Outliers:**
+
+  * *For countries with a GDP over $1 trillion:*
+    * no
+  
+  * *For countries with a GDP under $1 trillion:*
+    * yes, multiple
+
+Disclaimer: there are many more countries with a GDP under $1 trillion than over $1 trillion.
+
+Both distributions are skewed right. The distribution for under $1 trillion has a greater median than the distribution for over $1 trillion, but the over distribution has a greater IQR than the under distribution. The under distribution also has a greater max and a smaller min than the over distribution and multiple outliers while the over distribution has none. I decided to make comparative boxplots out of the two distributions, but first I had to reorganize the data.
+
+```{r}
+gdp <- gdp %>%
+  mutate(GDP_cat = ifelse(GDP > 1000, "Over", "Under"))
+
+gdp
+```
+More reorganizing and joining.
+
+```{r}
+gdp <- gdp %>%
+  left_join(averageAqi, by = "Country") %>%
+  filter(!if_any(everything(), is.na))
+
+gdp
+```
+Plot.
+
+```{r}
+ggplot(gdp, aes(x = average_aqi, y = GDP_cat, fill = GDP_cat)) +
+  geom_boxplot() +
+  labs(title = "Average AQI Value Across GDP Category",
+       x = "Average AQI Value", y = "GDP Category") +
+  scale_fill_manual(values = c("Over" = "lightgreen", "Under" = "lightblue")) +  # Custom colors for categories
+  theme_minimal()
+```
+#### Description:
+
+To make these horizontal side by side boxplots, we created a new categorical variable called GDP_cat. It has two levels, under and over. Under means that the country’s GDP is under $1 trillion, and over means that the country’s GDP is over $1 trillion. We also used a new numeric variable (created above) called Average AQI Value, which holds the average AQI value per country.
+
+These plots seem to suggest that countries with higher GDPs tend to have better air quality on average. However, wealthier countries also show more variability. There are probably additional variables and factors besides GDP affecting these distributions.
+
+### Q2: How do the countries with the top 5 GDPs compare in terms of air quality?
+
+Join data by country.
+
+```{r}
+combined_data <- left_join(gdp, air, by = "Country")
+```
+
+Make a new dataframe of the 5 countries with the greatest GDP.
+
+```{r}
+top5 <- combined_data %>%
+  arrange(desc(GDP)) %>%
+  filter(Country == c("China", "Germany", "Japan", "India", "France"))
+
+top5
+```
+Make a comparative boxplot.
+
+```{r}
+ggplot(top5, aes(Country, AQI.Value, fill = Country)) +
+  geom_boxplot()
+```
+
+Make a density plot.
+
+```{r}
+ggplot(top5, aes(AQI.Value, fill = Country)) +
+  geom_density() +
+  facet_grid(Country~., scales = "free_y") +
+  ggtitle("City AQI Values Across Countries With the Top 5 GDPs") +
+  xlab("AQI Value") +
+  theme_minimal()
+```
+
+Create new datasets per country for summary stat calculations.
+
+```{r}
+china <- top5 %>%
+  filter(Country == "China")
+
+france <- top5 %>%
+  filter(Country == "France")
+
+germany <- top5 %>%
+  filter(Country == "Germany")
+
+india <- top5 %>%
+  filter(Country == "India")
+
+japan <- top5 %>%
+  filter(Country == "Japan")
+```
+
+Calculate summary stats for each country individually.
+
+```{r}
+summary(china$AQI.Value)
+summary(france$AQI.Value)
+summary(germany$AQI.Value)
+summary(india$AQI.Value)
+summary(japan$AQI.Value)
+```
+
+#### Description:
+
+Both the box and density plots represent the AQI value distribution across cities in countries with the top 5 GDPs (The United States has been excluded because it does not possess the required GDP data).
+
+* China:
+  * appears unimodal
+  * appears skewed left
+  * outlier
+  * median = 138
+  * IQR = 74
+* France:
+  * appears unimodal
+  * appears skewed right
+  * outliers
+  * median = 50.50
+  * IQR = 27.25
+* Germany:
+  * appears bimodal
+  * appears skewed right
+  * no outliers
+  * median = 50
+  * IQR = 26
+* India:
+  * appears bimodal
+  * appears skewed right
+  * outliers
+  * largest IQR
+  * median = 153.50
+  * IQR = 75.75
+* Japan:
+  * appears unimodal
+  * appears skewed right
+  * outliers
+  * smallest IQR
+  * median = 46
+  * IQR = 21.25
+
+### Q3: How does GDP percentage vary across sectors?
+
+Remove rows with missing values in sectors of interest.
+
+```{r}
+gdp1 <- gdp %>% 
+  drop_na(Agriculture, Industry, Manufacturing, Services)
+```
+
+Convert data to long format for ggplot.
+
+```{r}
+gdp_long <- gdp1 %>%
+  pivot_longer(cols = c(Agriculture, Industry, Manufacturing, Services),
+  names_to = "Sector",
+  values_to = "Percentage")
+```
+
+Make comparative boxplots for GDP percentage by sector.
+
+```{r}
+ggplot(gdp_long, aes(x = Sector, y = Percentage, fill = Sector)) +
+  geom_boxplot() +
+  labs(title = "Distribution of GDP Percentages by Sector",
+  x = "Sector",
+  y = "GDP Percentage") +
+  theme_minimal() +
+  coord_flip()
+```
+
+Calculate summary stats for each sector individually.
+
+```{r}
+summary(gdp1$Agriculture)
+summary(gdp1$Industry)
+summary(gdp1$Manufacturing)
+summary(gdp1$Services)
+```
+
+##### Description:
+
+The boxplots represent the distributions of GDP allocation across Sectors. Services appears to have the greatest percentage of GDP allocation among countries, with Industry coming in second.
+
+* Agriculture:
+  * appears skewed right
+  * outliers
+  * median = 5.8
+  * IQR = 12.5
+* Industry:
+  * appears skewed right
+  * outliers
+  * median = 25.10
+  * IQR = 12.3
+* Manufacturing:
+  * appears skewed right
+  * outliers
+  * smallest IQR
+  * median = 11.90
+  * IQR = 7.6
+* Services:
+  * difficult to discern skew, but may be slightly skewed left
+  * outliers
+  * largest IQR
+  * median = 56
+  * IQR = 18
+
+# Milestone #6
+
+### Setting Up Again
+(R Studio is being finicky so I have to set up again in order to avoid an error when knitting)
+
+Load in tidyverse.
+
+```{r warning=FALSE, message=FALSE}
+library(tidyverse)
+library(ggplot2)
+```
+
+Import the datasets and rename them.
+
+```{r}
+library(readxl)
+gdp <- read_excel("C:/Users/glwei/OneDrive/Documents/Data Sci, Intro to R/gdp_percentages_2023.xlsx")
+air <- read.csv("C:/Users/glwei/OneDrive/Documents/Data Sci, Intro to R/global air pollution dataset.csv")
+```
+
+### Q1: Is there a correlation between overall GDP and a country’s average AQI value? (2 numeric variables)
+
+Our explanatory variable is GDP and our response variable is average AQI value.
+
+To begin, let's filter.
+
+```{r}
+gdp <- gdp %>%
+  filter(!Country %in% c("World", "East Asia & Pacific", "Europe & Central Asia", "Latin America & Caribbean", "Middle East & North Africa", "North America", "South Asia", "Sub-Saharan Africa")) %>%
+  arrange(desc(GDP))
+
+gdp
+```
+
+Create a new average AQI value column.
+
+```{r}
+averageAqi <- air %>%
+  group_by(Country) %>%
+  summarize(average_aqi = mean(AQI.Value, na.rm = TRUE))
+
+averageAqi
+```
+
+Join the two dataframes on Country and get rid of NA values.
+
+```{r}
+airgdp <- gdp %>%
+  left_join(averageAqi, by = "Country") %>%
+  filter(!is.na(average_aqi))
+
+airgdp
+```
+
+Filter for countries with a GDP over $1 trillion.
+
+```{r}
+gdp1t <- airgdp %>%
+  filter(GDP > 1000) %>%
+  arrange(desc(GDP))
+
+gdp1t
+```
+
+Create a scatterplot of GDP over $1 Trillion (x) vs. Average AQI Value (y).
+
+```{r}
+ggplot(gdp1t, aes(GDP, average_aqi)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  ggtitle("GDP over $1 Trillion vs. Average AQI Value") +
+  xlab("GDP over $1 Trillion (in billions)") +
+  ylab("Average AQI Value")
+```
+
+Correlation coefficient.
+
+```{r}
+cor(gdp1t$GDP, gdp1t$average_aqi)
+```
+Fit a linear model.
+
+```{r}
+gdp1t_model <- lm(average_aqi~GDP, gdp1t)
+summary(gdp1t_model)
+```
+
+#### Description:
+
+The r value 0.352 and the graph indicate a weak, positive, linear correlation with one major outlier on the x-axis.
+The slope of the regression line is 0.003522 and the y-intercept is 59.369121. This means that for every one-unit increase in GDP for countries with GDP over $1 trillion, the predicted average AQI value increases by 0.003522 units.
+
+
+Filter for Countries with a GDP under $1 trillion.
+
+```{r}
+gdput <- airgdp %>% 
+  filter(GDP < 1000)
+
+gdput
+```
+
+Create a scatterplot of GDP under $1 Trillion (x) vs. Average AQI Value (y).
+
+```{r}
+ggplot(gdput, aes(GDP, average_aqi)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  ggtitle("GDP under $1 Trillion vs. Average AQI Value") +
+  xlab("GDP under $1 Trillion (in billions)") +
+  ylab("Average AQI Value")
+```
+
+Correlation coefficient.
+
+```{r}
+cor(gdput$GDP, gdput$average_aqi)
+```
+Fit a linear model.
+
+```{r}
+gdput_model <- lm(average_aqi~GDP, gdput)
+summary(gdput_model)
+```
+
+#### Description:
+
+The r value 0.0326 and the graph indicate a very weak, positive, linear correlation with multiple possible outliers on the x and y-axis.
+The slope of the regression line is 0.006256 and the y-intercept is 67.911430. This means that for every one-unit increase in GDP for countries with GDP under $1 trillion, the predicted average AQI value increases by 0.006256 units.
+
+
+### Q2: How do average AQI values differ between countries that allocate the maximum percentage of their GDP to industry versus those that allocate the maximum to another sector?
+
+Use mutate to create new variables (max_percentage and max_sector). Max_sector is a new categorical variable listing the sector with the highest percentage of GDP allocation (max_percentage) in its respective country.
+
+```{r}
+highest_section <- airgdp %>%
+  mutate(
+    max_percentage = pmax(Industry, Services, Manufacturing, Agriculture, na.rm = TRUE),
+    max_sector = case_when(
+      max_percentage == Industry ~ "Industry",
+      max_percentage == Services ~ "Services",
+      max_percentage == Manufacturing ~ "Manufacturing",
+      max_percentage == Agriculture ~ "Agriculture",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  select(-Industry, -Services, -Manufacturing, -Agriculture, -GDP, -average_aqi)  # drop unwanted columns
+
+highest_section
+```
+
+Join the two dataframes on Country and get rid of NA values.
+
+```{r}
+allmax <- airgdp %>%
+  left_join(highest_section, by = "Country") %>%
+  filter(!is.na(max_sector)) %>%
+  na.omit()
+
+allmax
+```
+
+Filter for when max sector == industry.
+
+```{r}
+indust <- allmax %>%
+  filter(max_sector == "Industry")
+
+indust
+```
+
+Plot.
+
+```{r}
+ggplot(indust, aes(GDP, average_aqi)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  ggtitle("GDP vs. Average AQI Value (Max Sector Industry)") +
+  xlab("GDP (in billions)") +
+  ylab("Average AQI Value") +
+  theme_minimal()
+```
+
+Correlation coefficient.
+
+```{r}
+cor(indust$GDP, indust$average_aqi)
+```
+Fit a linear model.
+
+```{r}
+indust_model <- lm(average_aqi~GDP, indust)
+summary(indust_model)
+```
+
+#### Description:
+
+The r value 0.6016 and the graph indicate a moderately strong, positive, linear correlation with a possible outlier on the x-axis.
+The slope of the regression line is 0.10916 and the y-intercept is 74.77757. This means that for every one-unit increase in GDP for countries with a max sector of industry, the predicted average AQI value increases by 0.10916 units.
+
+
+Filter for when max sector == services.
+
+```{r}
+serv <- allmax %>%
+  filter(max_sector == "Services") %>%
+  na.omit()
+
+serv
+```
+
+Plot.
+
+```{r}
+ggplot(serv, aes(GDP, average_aqi)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  ggtitle("GDP vs. Average AQI Value (Max Sector Services)") +
+  xlab("GDP (in billions)") +
+  ylab("Average AQI Value") +
+  theme_minimal()
+```
+
+Correlation coefficient.
+
+```{r}
+cor(serv$GDP, serv$average_aqi)
+```
+Fit a linear model.
+
+```{r}
+serv_model <- lm(average_aqi~GDP, serv)
+summary(serv_model)
+```
+
+#### Description:
+
+The r value 0.1618 and the graph indicate a very weak, positive, linear correlation with a possible outlier on the x-axis.
+The slope of the regression line is 0.002959 and the y-intercept is 63.183492. This means that for every one-unit increase in GDP for countries with a max sector of services, the predicted average AQI value increases by 0.002959 units.
+
+
+Filter for when max sector == agriculture.
+
+```{r}
+agri <- allmax %>%
+  filter(max_sector == "Agriculture")
+
+agri
+```
+
+Plot.
+
+```{r}
+ggplot(agri, aes(GDP, average_aqi)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  ggtitle("GDP vs. Average AQI Value (Max Sector Agriculture)") +
+  xlab("GDP (in billions)") +
+  ylab("Average AQI Value") +
+  theme_minimal()
+```
+
+Correlation coefficient.
+
+```{r}
+cor(agri$GDP, agri$average_aqi)
+```
+Fit a linear model.
+
+```{r}
+agri_model <- lm(average_aqi~GDP, agri)
+summary(agri_model)
+```
+
+#### Description:
+
+The r value 0.9987 and the graph indicate a very strong, positive, linear correlation with no outliers. There are also only three points, so it's not the best graph or model.
+The slope of the regression line is 2.3132 and the y-intercept is 35.6842. This means that for every one-unit increase in GDP for countries with a max sector of agriculture, the predicted average AQI value increases by 2.3132 units.
+
+
+There are no rows where max sector == manufacturing, so let's move on.
+
+Plot everything together. It looks pretty bad (China is a massive outlier, and most max sectors are Services).
+
+```{r}
+ggplot(allmax, aes(GDP, average_aqi, color = max_sector)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, color = "black") +
+  ggtitle("GDP vs. Average AQI Value (All Sectors)") +
+  xlab("GDP (in billions)") +
+  ylab("Average AQI Value")
+```
+
+Correlation coefficient.
+
+```{r}
+cor(allmax$GDP, allmax$average_aqi)
+```
+Fit a linear model.
+
+```{r}
+allmax_model <- lm(average_aqi~GDP, allmax)
+summary(allmax_model)
+```
+
+#### Description:
+
+The r value 0.1318 and the graph indicate a very weak, positive, linear correlation with a possible outlier on the x-axis.
+The slope of the regression line is 0.002834 and the y-intercept is 66.958830. This means that for every one-unit increase in GDP, the predicted average AQI value increases by 0.002834 units.
+
+
+### Creating and evaluating more linear models
+
+Create a scatterplot of GDP vs. average AQI value with a linear fit.
+
+```{r}
+# Scatter Plot with Linear Fit
+ggplot(airgdp, aes(x = GDP, y = average_aqi)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "red", se = FALSE) +
+  labs(title = "GDP vs. Average AQI Value (All Sectors)",
+  x = "GDP (in billions USD)",
+  y = "Average AQI Value") +
+  theme_minimal()
+```
+
+R = 0.1123833
+
+Make a linear model between the two variables.
+
+```{r}
+# Linear Regression Analysis
+linear_model <- lm(average_aqi ~ GDP, data = airgdp)
+summary(linear_model)
+```
+Create a new categorical variable for GDP grouping called GDP_Group, where GDP is sorted into either above 2000 billion (High GDP) or under 2000 billion (Low GDP).
+
+```{r}
+# Create a new categorical variable for GDP grouping
+# Assume GDP over 2000 billion as "High GDP", and below as "Low GDP"
+gdp2 <- airgdp %>%
+  mutate(GDP_Group = ifelse(GDP > 2000, "High GDP", "Low GDP")) %>%
+  na.omit()
+```
+
+Create a scatterplot of GDP vs. average AQI value with a linear fit and colored by GDP Group.
+
+```{r}
+# Scatter Plot with Linear Fit and Color by GDP Group
+ggplot(gdp2, aes(x = GDP, y = average_aqi, color = GDP_Group)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(title = "GDP vs. Average AQI by GDP Group",
+  x = "GDP (in billions USD)",
+  y = "Average AQI",
+  color = "GDP Group") +
+  theme_minimal()
+```
+
+Fit separate models for each GDP group.
+
+```{r}
+# Linear Regression Analysis with Color Grouping
+# Fit separate models for each GDP group
+model_high <- lm(average_aqi ~ GDP, data = gdp2 %>% filter(GDP_Group == "High GDP"))
+
+model_low <- lm(average_aqi ~ GDP, data = gdp2 %>% filter(GDP_Group == "Low GDP"))
+```
+
+Call summary stats for each model.
+
+```{r}
+# High GDP model
+summary(model_high)
+```
+
+#### Description:
+
+The r squared value 0.29 suggests a weak, positive, linear correlation.
+The slope of the regression line is 0.004332 and the y-intercept is 51.404082. This means that for every one-unit increase in GDP, the predicted average AQI value increases by 0.004332 units.
+
+
+```{r}
+# Low GDP model
+summary(model_low)
+```
+
+#### Description:
+
+The r squared value 0.0014 suggests a very weak, positive, linear correlation.
+The slope of the regression line is 0.003966 and the y-intercept is 67.240328. This means that for every one-unit increase in GDP, the predicted average AQI value increases by 0.003966 units.
