@@ -1,2 +1,2 @@
 # portfolio-projects
-A collection of all projects that I have completed over the years.
+This repository contains a collection of all significant projects and assignments that I have completed over the years.
