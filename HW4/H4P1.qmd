@@ -1,0 +1,198 @@
+---
+title: "Problem 1: A Journey to the Center"
+author:
+  - Gabriella Weis
+  - Luca Casano
+date: today
+format:
+ html:
+    embed-resources: true
+    theme: sandstone
+    title-block-banner: true
+editor: visual
+---
+
+## Introduction
+
+In this problem, we have been tasked with using a dataset of globular clusters to determine how far the Sun sits from the center of the Milky Way. This requires us to follow the process of Harlow Shapley, who used globular clusters to gain a better understanding of the shape of the milky way galaxy and our location within it. We will convert the given Right Ascension (RA) and Declination (DEC) values into their decimal equivalents, convert these equatorial coordinates into their corresponding Cartesian coordinates, and finally use these Cartesian coordinates to determine where the center of the Milky Way lies. This will allow us to determine approximately how far our sun lies from the center.
+
+To begin, we must first load in the collection of packages `tidyverse` for the packages `ggplot2` and `dplyr`. `Ggplot2` will allow us to plot the globular clusters in relation to each other, and `dplyr` is useful for data manipulation. We will also load in the data, naming it `clusters`.
+
+```{r, output=FALSE}
+library(tidyverse)
+
+clusters <- read_csv("C:/Users/glwei/Downloads/MW_star_clusters.csv")
+```
+
+We took a look at the columns and structure of the data using `glimpse()` from `dplyr`, noting our three most important columns: `Right ascension` (RA in hours, minutes, and seconds), `Declination` (DEC in degrees, arcminutes, and arcseconds), and `Distance (kpc)` (distance in kiloparsecs). We will be using all three measurements in the necessary conversion to Cartesian coordinates (as you can clearly see, `Right ascension` and `Declination` are not given in the form we need them to be). The `Constellation` column may be useful later, in case we want to find the closest constellation to the center of the Milky Way, and `Indentifier` just contains the name of each cluster in the dataset.
+
+```{r}
+glimpse(clusters)
+```
+
+## Conversions
+
+To begin, we must convert our equatorial coordinates to degrees. Here, we will be dealing with the `Right ascension` column (currently in hours, minutes, and seconds) and the `Declination` column (currently in degrees, arcminutes, and arcseconds).
+
+We started with RA, which has its conversion equation written below.
+
+$$
+RA(degrees) = 15(hours + \frac{minutes}{60} + \frac{seconds}{3600})
+$$
+
+We created a function called `convert_ra` to take in each observation as a string, then strip and split it so we could use this equation. First, the function removes the "h", "m", and "s" markers using `gsub()`. Then, it splits the string into parts by spaces and converts it into a numeric value using `as.numeric()`. Parts is selected according to spaces for the formula. The function returns the RA in degrees.
+
+We stored these converted values in a newly formed column called `RA_deg` within `clusters` using `sapply()`. This applied our `convert_ra` function to every observation in the given `Right ascension` column.
+
+```{r}
+convert_ra <- function(ra_string) {
+  # remove characters, create parts
+  ra_string <- gsub("[hms]", "", ra_string)
+  parts <- as.numeric(strsplit(ra_string, " ")[[1]])
+  # degrees formula
+  degree_ra <- 15 * (parts[1] + parts[2] / 60 + parts[3] / 3600)
+  return(degree_ra)
+}
+
+# create new RA column
+clusters$RA_deg <- sapply(clusters$`Right ascension`, convert_ra)
+```
+
+Next, we did a similar thing for declination. Its conversion equation is written below.
+
+$$
+DEC(degrees) = degrees + \frac{arcmins}{60} + \frac{arcsecs}{3600}
+$$
+
+Once again, we created a function called `convert_dec` to take in each observation as a string, then strip and split it so we could use this equation.
+
+First, the function removes the unit markers and replaces characters that appear to be spaces (but are not) with actual spaces using `gsub()`. Then, it splits the string into parts by spaces and converts it into a numeric value using `as.numeric()`. It also preserves the sign using `ifelse()` to determine if the value is positive or negative. Finally, parts is selected according to spaces for the formula. The function returns the DEC in degrees.
+
+We stored these converted values in a newly formed column called `DEC_deg` within `clusters` using `sapply()`. This applied our `convert_dec` function to every observation in the given `Declination` column.
+
+```{r}
+convert_dec <- function(dec_string) {
+  # remove characters, create parts
+  dec_string <- gsub("[^ -~]+", " ", dec_string)
+  parts <- as.numeric(strsplit(dec_string, " ")[[1]])
+  # preserve sign
+  sign <- ifelse(substr(dec_string, 1, 1) == "-", -1, 1)
+  # degrees formula
+  degree_dec = sign * (abs(parts[1]) + parts[2] / 60 + parts[3] / 3600)
+  return(degree_dec)
+}
+
+# create new DEC column
+clusters$DEC_deg <- sapply(clusters$Declination, convert_dec)
+```
+
+To prepare for the conversion to Cartesian Coordinates, we also converted the `Distance (kpc)` column, which represents the distance of the cluster in kiloparsecs, to parsecs (for ease of comparison to the accepted value at the end of our process). To do so, we use the equation $d_p=d_{kp}\times1000$, where $d_p$ represents distance in parsecs and $d_{kp}$ represents distance in kiloparsecs. We used the `dplyr` verb `mutate()` to create a new distance column in the `clusters` dataset called `dist_pc`.
+
+```{r}
+clusters <- clusters %>%
+  mutate(dist_pc = `Distance (kpc)`*1000)
+```
+
+The last step before the Cartesian conversion is converting degrees to radians. The formula for this is $r=d\times\frac{π}{180}$, where $r$ is the measure in radians and $d$ is the measure in degrees. We perform this calculation for both RA and DEC values, using `mutate()` again to create the new columns `RA_rad` and `DEC_rad` in the `clusters` dataset.
+
+```{r}
+clusters <- clusters %>%
+  mutate(RA_rad = RA_deg * (pi / 180),
+         DEC_rad = DEC_deg * (pi / 180))
+```
+
+Finally, it's time to convert our equatorial coordinates (which we converted to degrees and then to radians) into Cartesians (x,y,z). This requires the use of three formulas, written below, where $δ$ represents declination (in radians), $α$ represents right ascension (in radians), and $d$ represents distance (in parsecs)
+
+$$
+x = d\times cos(δ)\times cos(α)
+$$ $$
+y = d\times cos(δ)\times sin(α)
+$$ $$
+z = d\times sin(δ)
+$$
+
+We used `mutate()` to store these coordinates in three new columns (`X`, `Y`, and `Z`).
+
+```{r}
+clusters <- clusters %>%
+  mutate(X = dist_pc*cos(DEC_rad)*cos(RA_rad)) %>%
+  mutate(Y = dist_pc*cos(DEC_rad)*sin(RA_rad)) %>%
+  mutate(Z = dist_pc*sin(DEC_rad))
+```
+
+## Calculating the Center
+
+Now that we have our globular clusters' Cartesian coordinates, we can plot their dimensions against each other to get an idea of how they appear in relation to each other. We used `ggplot()` from `ggplot2` and created two plots. In both plots, the globular clusters seem concentrated in a space. These plots served simply to get a brief visualization before we calculate the averages of each dimension, which will give us an estimation of the center of the Milky Way. Let us move on to doing so.
+
+```{r}
+#| layout-ncol: 2
+#| column: page
+#| warning: False
+#| code-fold: True
+
+ggplot(clusters, aes(X, Y)) + geom_point() + ggtitle("Cartesian X vs. Y") + theme_minimal()
+ggplot(clusters, aes(X, Z)) + geom_point() + ggtitle("Cartesian X vs. Z") + theme_minimal()
+```
+
+To find the average of each dimension, we can find the mean of the columns `X`, `Y`, and `Z` using the built in `mean()` function, specifying `na.rm=TRUE` because there are `NA`s in our data. This gives us three values, named `x`, `y` and `z` in correspondence with which column in `clusters` they are the mean of.
+
+```{r}
+x <- mean(clusters$X, na.rm=TRUE)
+y <- mean(clusters$Y, na.rm=TRUE)
+z <- mean(clusters$Z, na.rm=TRUE)
+```
+
+Keeping in mind that the Cartesian coordinates of the Sun are (0,0,0), we can use the distance formula to calculate `center_dist`, or the distance of the Sun to the center of the Milky Way. Below is the distance formula, first in its original form, and then in its simplified version.
+
+In the complete equation, $d$ represents distance (in parsecs), $letter_1$ represents the Milky way's Cartesian dimension for that letter, and $letter_2$ represents the Sun's Cartesian dimension for that letter.
+
+$$
+d = \sqrt{(x_2-x_1)^2+(y_2-y_1)^2+(z_2-z_1)^2}
+$$
+
+Because the Sun's Cartesian coordinates are (0,0,0), we can simplify this equation. In the simplified equation, all letters correspond to their respective Milky Way Cartesian coordinate.
+
+$$
+d = \sqrt{(x)^2+(y)^2+(z)^2}
+$$
+
+Using this simplified distance formula, we calculate center_dist, which is equal to approximately 7058.0487 parsecs. Compared to the established value of about 8178 parsecs, we are unfortunately a bit off (by about 1119.951 parsecs).
+
+```{r}
+center_dist = sqrt(x^2 + y^2 + z^2)
+
+paste("Center:",center_dist, "parsecs")
+```
+
+## Bonus
+
+To go a bit further, we can work backwards to determine where the center of the Milky Way appears in equatorial coordinates and what constellation this lies closest to. First, we convert center Cartesian coordinates back to equatorial using the formulas shown below, in which $x$, $y$, and $z$ represent the Cartesian coordinates of the Milky Way, $α$ represents right ascension, and $δ$ represents declination.
+
+$$
+α = atan2(y,x)
+$$ $$
+δ = arcsin(\frac{z}{\sqrt{x^2+y^2+z^2}})
+$$
+
+We perform these calculations in the code below, substituting in `center_dist` in for the bottom half of the fraction in the declination calculation. This gives us the right ascension and declination in radians (`ra_rad` and `dec_rad`).
+
+```{r}
+ra_rad <- atan2(y,x)
+dec_rad <- asin(z/center_dist)
+```
+
+Next, we convert our equatorial coordinates from radians to degrees using the formula $d=r\times\frac{180}{π}$, where $d$ represents the measurement in degrees and $r$ represents it in radians. Also, because right ascension is, in decimal degrees, on a scale from 0 to 360, we add 360 to the RA degree conversion. The result is an RA value of approximately 253.9332 degrees and a DEC value of approximately -32.0997 degrees.
+
+```{r}
+ra_deg <- ra_rad*(180 / pi) + 360
+dec_deg <- dec_rad*(180 / pi)
+
+paste("RA:",ra_deg,"degrees")
+paste("DEC:",dec_deg,"degrees")
+```
+
+To determine which constellation this lies closest to, we can search the dataset for the RA and DEC values that reside closest to our calculated ones. The result is the cluster "Minniti 16," with a right ascension of 260.3458 degrees and a declination of -32.82167 degrees, found in the Scorpius constellation. This cluster's RA is different from our RA by about 6.4 degrees (the closest cluster in terms of DEC, in the constellation of Ophiuchus, differed from our calculated DEC by about 9.9 degrees).
+
+```{r}
+clusters[182, c("Identifier","RA_deg","DEC_deg","Constellation")]
+```

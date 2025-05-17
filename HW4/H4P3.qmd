@@ -1,0 +1,244 @@
+---
+title: "Problem 3: Classifying Galaxies"
+author:
+  - Gabriella Weis
+  - Luca Casano
+date: today
+format:
+ html:
+    embed-resources: true
+    theme: sandstone
+    title-block-banner: true
+editor: visual
+---
+
+## Introduction
+
+Our goal for this problem is to create several machine learning models to predict a galaxy’s broad type: elliptical, merger/irregular, or spiral. These models will include one logistic regression, one decision tree, and one random forest. After creating them, we will compare the accuracy of each model and determine which would work best in certain situations.
+
+To begin, we load in the collection of packages `tidyverse`, which contains `ggplot2` (useful for plotting) and `dplyr` (useful for data manipulation). We also load in the collection of packages `tidymodels`, which contains packages like `yardstick`. These packages are exceptionally useful for model creation and analysis. Lastly, we load in the data, a collection of 780 galaxies and their respective information, naming it `galaxies`.
+
+```{r, output=FALSE}
+library(tidyverse)
+library(tidymodels)
+
+galaxies <- read_csv("C:/Users/glwei/Downloads/galaxies.csv")
+```
+
+By calling `glimpse()` from `dplyr` on `galaxies` to view its columns and structure, we are able to take a look at all 17 of its variables.
+
+The first four of these column contain color information in the form of magnitude differences. This is useful because we expect spiral galaxies to appear "bluer" due to their more recent star formation.
+
+The fifth column, `ecc`, contains eccentricity information, retrieved from fitting an ellipse to the galaxy and extracting its semi-major and minor axes.
+
+The sixth to the tenth columns (`m4_u` to `m4_z`) contain the fourth order adaptive moment in each filter, which measures the kurtosis or “tailed-ness” of a distribution.
+
+The 11th to the 16th columns (`petroR50_u` to `petroR90_z`) contain Petrosian magnitudes at the 50th and 90th percentile in each filter, which measure the magnitude of the galaxy 50 percent or 90 percent away from the center of the galaxy. This helps capture the decrease in number of stars as the distance from the galactic center increases.
+
+The 17th column, `class`, is the type of galaxy, and this is what we'll be attempting to predict with our models.
+
+```{r}
+glimpse(galaxies)
+```
+
+## Logistic Regression
+
+The first model we will create is a logistic regression. To begin with this, we set a randomization seed with `set.seed()`, ensuring that the results of our randomization are reproducible for analysis and model tuning purposes. We also set the `class` column in `galaxies` to a factor using `as.factor()`; it needs to be a factor for the model classification process, and prior to this slight adjustment, it was a character.
+
+```{r}
+set.seed(3000)
+galaxies$class <- as.factor(galaxies$class)
+```
+
+Next, we split the data into training and testing data using `initial_split()`. The proportion of data used for training is listed under `prop=0.8`, or 80% of the data. This data is assigned to a dataset called `train_df` using `training(splits)`, and it contains 624 galaxies out of the 780. The testing data, or the other 20% of the data, is assigned to another dataset called `test_df` using `testing(splits)`. It contains the other 156 galaxies.
+
+```{r}
+splits <- initial_split(galaxies, prop=0.8)
+train_df <- training(splits)
+test_df <- testing(splits)
+```
+
+Now that we have the splits ready, we can create the model itself using `multinom_reg()`. This function defines a model that uses linear predictors to predict multiclass data using the multinomial distribution, and it can fit classification models.
+
+```{r}
+model = multinom_reg()
+```
+
+To fit this model, named `model`, we can first create a variable called `formula` for ease of use. This variable contains the formula for the regression fit, or $p=f_1+f_2...+f_n$, where $p$ is the predicted column (`class`, in our case) and the $f$ variables represent each "feature" column (i.e., the columns that are used in the model to try to predict the predicted column). This can be represented in (R) code as `p ~ f1 + f2... + f_n`. The resulting `formula` variable will be used in this model and others for simplicity's sake.
+
+```{r}
+formula <- class ~ `u-g`+`g-r`+`r-i`+`i-z`+ecc+m4_u+m4_g+m4_r+m4_i+m4_i+m4_z+petroR50_u+petroR50_r+petroR50_z+petroR90_u+petroR90_r+petroR90_z
+```
+
+The next order of business is using `formula` to fit the model and then test it. Using the `fit()` function from `tidymodels` and the training data in `train_df`, we create the variable `model_fit`. Afterward, we use the `dplyr` verb `mutate()` to create a new column in `test_df` called `predicted`. This new column is created by piping `model_fit` into `predict(test_df)`, then selecting the column containing the freshly formed predictions using `$.pred_class`. Our model is thus created and tested.
+
+```{r}
+model_fit <- model %>%
+  fit(formula, data=train_df)
+
+test_df <- test_df %>%
+  mutate(predicted = (model_fit %>% predict(test_df))$.pred_class)
+```
+
+Using the function `conf_mat` (from the `yardstick` package within `tidymodels`), we will create a confusion matrix to visualize the success and accuracy of our regression model. It takes in the data (`test_df`), alongside both the true galaxy classification (`class`) and the predicted classification (`predicted`). We plotted the resulting confusion matrix (`cm_reg`) using `autoplot` from the package `ggplot2`, specifying `type='heatmap'`. We also added `scale_fill_gradient()` with colors specified to control the visualization further.
+
+The result is a graph made up of nine rectangles, with `Truth` (the true galaxy classification) on the x-axis and `Predicted` (the predicted classification) on the y-axis. The diagonal rectangles, noticeable for their dark green color (the lighter the box, the less galaxies it contains) represent the number of correctly classified galaxies; they are where `Truth` matches `Prediction`. All other rectangles represent miss-classifications of a variety of different types.
+
+```{r}
+#| warning: False
+cm_reg <- conf_mat(test_df, class, predicted)
+autoplot(cm_reg, type='heatmap') + scale_fill_gradient(low="white", high="green4")
+```
+
+We can now calculate the overall accuracy of our logistic regression model using our newly crafted confusion matrix. We extract the confusion matrix table from `cm_reg` using `cm_reg$table`, assigning it to the variable `cm_table`. We then select the diagonals of the table (which are all the true predictions) and sum them up using `sum(diag(cm_table))`. This is named `correct_preds`. Then we can sum up the entire table of predictions with `sum(cm_table)`, naming it `all_preds`. The actual accuracy calculation follows the formula $accuracy=\frac{correct\space predictions}{total\space predictions}$, which we perform in the code and are left with an accuracy of approximately 80.13%.
+
+```{r}
+cm_table <- cm_reg$table
+correct_preds <- sum(diag(cm_table))
+all_preds <- sum(cm_table)
+
+accuracy_reg <- correct_preds/all_preds
+paste("Logistic Regression model accuracy:",accuracy_reg)
+```
+
+## Decision Tree Classifier
+
+A decision tree is a model based on a set of if/then statements that create a tree-like structure. For our decision tree model, we begin the same way as the logistic regression. In fact, we can reuse the randomization seed and data splitting code (the `train_df` and `test_df` remain 80% and 20% splits of the data, respectively). Instead, we just skip ahead to the model fitting. We create a `tree` model using `decision_tree()`, specifying `mode="classification"` and `min_n=50` (which defines the minimum number of points required for a tree node to be split further).
+
+```{r}
+tree = decision_tree(mode="classification", min_n=50)
+```
+
+To fit the model itself, we use the same process as the logistic regression model, using `formula` (which we also created during the regression model). The only difference is that this time we pipe the `tree` model in instead, and our fit is called `tree_fit` as a result. Our decision tree is now fitted and tested on the `test_df`, and we have a new `predicted` column for the model in `test_df`.
+
+```{r}
+tree_fit <- tree %>%
+  fit(formula, data=train_df)
+
+test_df <- test_df %>%
+  mutate(predicted = (tree_fit %>% predict(test_df))$.pred_class)
+```
+
+For the decision tree model, we have some more extensive options available for visualizing its results (alongside another confusion matrix). To plot the actual tree created by our model, we can load in the package `rpart.plot` and call its function `rpart.plot()` on the fit (specifying `roundint=FALSE` silences warnings by preventing the function from attempting to round integers).
+
+The result is the decision tree shown below, where the nodes colored orange represent areas dedicated to elliptical galaxies, gray to merger galaxies, and green to spiral. To better understand what we ended up with, we must be able to comprehend the numbers on our tree. Looking at a single node, we see the name of the galaxy category at its top, three decimals across the middle, and a percentage at the bottom. The three decimals represent the percentage of the data in that node that correlates to elliptical, merger, and spiral galaxies, from left to right. This means that as more splits occur according to the node's class, its correlating middle decimal should grow closer to one. In other words, the confidence that a random datapoint in that node is that node's class increases. As for the percentage across the bottom of the node, it represents what percent of the testing data is contained within that node. Because we specified `min_n=50`, a node could not split if it contained less than 50 observations, cutting down the size of our tree and lessening instability. This is visible along the base of our tree, where nodes could not be split further because they contained less than 50 datapoints (just slightly greater than 32% of the data).
+
+We can also see the if/then statements that drive the decision tree's creation below each node split. For example, the starting split is derived from the "yes" or "no" question of whether or not the `u-g` variable is greater than or equal to 1.7.
+
+```{r}
+#| warning: False
+library(rpart.plot)
+rpart.plot(tree_fit$fit, roundint=FALSE)
+```
+
+We also want to understand what features were most important in the creation of the tree. To do so, we load in yet another package: `vip`. Calling `vip()` on the the `tree_fit` grants us a comprehensive plot of the features and their importance level. For decision tree, it appears that the `u-g` variable was most important in determining galaxy type. The top five features, ordered from most to least important, are as follows: `u-g`, `g-r`, `i-z`, `m4_u`, and `petroR50_u`.
+
+```{r}
+#| warning: False
+library(vip)
+vip(tree_fit)
+```
+
+Finally, we created a confusion matrix once again. The structure remains the same as the logistic regression model's (except that here, the confusion matrix variable is fittingly named `cm_tree` instead of `cm_reg`).
+
+```{r}
+#| warning: False
+cm_tree <- conf_mat(test_df, class, predicted)
+autoplot(cm_tree, type='heatmap') + scale_fill_gradient(low="white", high="green4")
+```
+
+We will now calculate the overall accuracy of our decision tree model using our confusion matrix, which, again, follows the same process as that of the calculations for the logistic regression model. We extract the confusion matrix table from `cm_tree` using `cm_tree$table`, select the diagonals of the table, and sum them up. Then we sum up the entire table of predictions and calculate the accuracy using the formula $accuracy=\frac{correct\space predictions}{total\space predictions}$. This time, we are left with an accuracy of approximately 82.05%.
+
+```{r}
+cm_table <- cm_tree$table
+correct_preds <- sum(diag(cm_table))
+all_preds <- sum(cm_table)
+
+accuracy_tree <- correct_preds/all_preds
+paste("Decision Tree model accuracy:",accuracy_tree)
+```
+
+## Random Forest Classifier
+
+Our third and final model is a random forest, which is a compilation of decision trees, each independent of the others. The final model prediction is a combination of all predictions from the individual trees.
+
+We begin this model's construction in the same way as that for the logistic regression and decision tree models, reusing the randomization seed and data splitting code again (the `train_df` and `test_df` remain 80% and 20% splits of the data, respectively). Then, we create a `forest` model using `random_forest()`, specifying `mode="classification"`, `trees=400` (the number of decision trees in the model), `min_n=50` (the minimum number of points required for a tree node to be split further), and `mtry=8` (which determines how many features to keep at each split). Setting the engine and importance with `set_engine()` allows us to create a feature importance visualization later down the line.
+
+```{r}
+forest <- rand_forest(mode="classification", trees=400, min_n=50, mtry=8) %>% set_engine("ranger", importance="impurity")
+```
+
+To fit the model, we use `formula` and the same structure as the other two models. piping `forest` into `forest_fit`. Our random forest is now fitted and tested on the `test_df`, and we have a new `predicted` column for the model in `test_df`.
+
+```{r}
+forest_fit <- forest %>%
+  fit(formula, data=train_df)
+
+test_df <- test_df %>%
+  mutate(predicted = (forest_fit %>% predict(test_df))$.pred_class)
+```
+
+To plot important features in the creation of the forest, we use `vip()` on the the `forest_fit`. Similarly to the decision tree model, it appears that the `u-g` variable was most important in determining galaxy type for the random forest model. The overall scale of the graph is smaller this time as well. However, the most major difference between the two importance graphs is the order in which the feature variables appear (with the exception of the `u-g` variable). For the random forest model, the top five features (ordered again from most to least important) are as follows: `u-g`, `ecc`, `g-r`, `petroR50_u`, and `r-i`. Neither `ecc` nor `r-i` were in the top five most important features for the single decision tree.
+
+```{r}
+vip(forest_fit)
+```
+
+Once more, we created a confusion matrix for the model. The code structure remains the same as before (but the confusion matrix variable is now `cm_forest`).
+
+```{r}
+#| warning: False
+cm_forest <- conf_mat(test_df, class, predicted)
+autoplot(cm_forest, type='heatmap') + scale_fill_gradient(low="white", high="green4")
+```
+
+Lastly, we will calculate the overall accuracy of our random forest model using our confusion matrix, following all previous code structure. We extract the confusion matrix table from `cm_forest` using `cm_forest$table`, select the diagonals of the table, and sum them up. Then we sum up the entire table of predictions and calculate the accuracy using the formula $accuracy=\frac{correct\space predictions}{total\space predictions}$. This time, we are left with an accuracy of approximately 87.82%.
+
+```{r}
+cm_table <- cm_forest$table
+correct_preds <- sum(diag(cm_table))
+all_preds <- sum(cm_table)
+
+accuracy_forest <- correct_preds/all_preds
+paste("Random Forest model accuracy:",accuracy_forest)
+```
+
+## Comparisons
+
+Now that we have created our three different models, we will compare them across use-cases, determining which model might work best and why.
+
+*1. You are interested in doing a study on elliptical galaxies. Because of the nature of the study, you want to ensure that any galaxies you have in your dataset are truly elliptical. You don’t mind if you miss out on a few elliptical galaxies in the process.*
+
+This will be the model that miss-classifies elliptical galaxies the least. In this case, a miss-classification (that matters to us) occurs when `truth = not elliptical`, and `prediction = elliptical`. It does not matter if `truth = elliptical` or `prediction = not elliptical`, because we don't mind missing out on a few elliptical galaxies.
+
+| Model               | Number of Relevant Miss-classifications |
+|---------------------|-----------------------------------------|
+| Logistic Regression | 7                                       |
+| Decision Tree       | 4                                       |
+| Random Forest       | 1                                       |
+
+With a low (relevant) miss-classification rate, the random forest model would clearly work best in this situation.
+
+*2. You are doing a study on star forming regions and want to grab as many spiral galaxies as possible into your dataset. You don’t mind if you get a few mergers in your dataset as well, since they are also commonly star forming regions.*
+
+This will be the model that classifies as many spiral galaxies as possible correctly (including merger predictions but not elliptical predictions). We must also take into consideration how many spiral galaxies the model misses (the more it misses, the less viable it is in this situation, because part of the goal here is to classify a high amount of spiral galaxies).
+
+| Model | Correct Spiral Classifications | Mergers Falsely Classified as Spirals | Correct Spirals + Mergers Falsely Classified as Spirals | All Missed Spirals |
+|---------------|---------------|---------------|---------------|---------------|
+| Logistic Reg | 40 | 9 | 49 | 10 |
+| Decision Tree | 44 | 10 | 54 | 6 |
+| Rand Forest | 42 | 4 | 46 | 8 |
+
+Due to a lower miss rate and a higher overall correct spiral classification rate, the decision tree model takes the cake in this situation. If we include mergers that were incorrectly classified as spirals in the sum of each model's spiral classifications, this becomes even more definitive.
+
+*3. You are interested in exploring the intersection between spiral and elliptical galaxies, and thus would love to build up a dataset of galaxies that could easily be mistaken as either a spiral or an elliptical galaxy.*
+
+This will be the model that has the least miss-classifications between spiral and elliptical galaxies.
+
+| Model | Spirals Falsely Classified as Ellipticals | Ellipticals Falsely Classified as Spirals | Total |
+|------------------|------------------|------------------|------------------|
+| Logistic Reg | 1 | 1 | 2 |
+| Decision Tree | 1 | 0 | 1 |
+| Random Forest | 0 | 1 | 1 |
+
+Since all of the models seem to be doing a relatively similar (and good) job at differentiating between spiral and elliptical galaxies, it might be best to use the model with the highest overall accuracy. This would be the random forest model, with an accuracy of about 87.82%.

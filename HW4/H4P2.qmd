@@ -1,0 +1,204 @@
+---
+title: "Problem 2: Cepheid Variable Stars"
+author:
+  - Gabriella Weis
+  - Luca Casano
+date: today
+format:
+ html:
+    embed-resources: true
+    theme: sandstone
+    title-block-banner: true
+editor: visual
+---
+
+## Introduction
+
+In this problem, we will analyze data on Cepheid variable stars. Part A will focus on Henrietta Leavitt’s findings, specifically the period-luminosity relationship for Cepheid variables, which we will use to derive a regression fit that relates the period of a star’s pulsation to its absolute magnitude. Part B will involve determining the distance to a specific Cepheid variable star based on its light curve data, applying the period-luminosity relation derived in Part A to compute the star's distance in parsecs.
+
+First, we load in the group of packages `tidyverse`, which contains `dplyr` and `ggplot2`. These packages will help us handle and visualize the data efficiently. The data is also loaded in and named `cepheids`.
+
+```{r, output=FALSE}
+library(tidyverse)
+
+cepheids <- read_csv("C:/Users/glwei/Downloads/leavitt_cepheids.csv")
+```
+
+To get an idea of what the `cepheids` dataset looks like, we call `head()` to visualize its first six rows. There are four columns in the resulting printout: Harvard identification number (`Harv_Num`), the maximum and minimum apparent magnitudes (`m_max` and `m_min`), and the observed period in days (`period_d`). The last three columns are the ones that we have the most interest in, for they will allow us to calculate average and subsequently absolute magnitude, as well as create a linear fit for the period-luminosity relationship.
+
+```{r}
+head(cepheids)
+```
+
+## Part A: Log-fitting
+
+We begin by calculating the average apparent magnitude of the Cepheid stars by averaging their maximum and minimum magnitudes. The formula for this is written out below, where $m_{avg}$ represents the star's average apparent magnitude, $m_{min}$ represents its minimum apparent magnitude, and $m_{max}$ represents its maximum apparent magnitude.
+
+$$
+m_{avg}=\frac{m_{min}+m_{max}}{2}
+$$ We replicate this formula in code, using the `mutate()` function from `dplyr` to create the new column `avg_mag`. This column now contains each star's average apparent magnitude.
+
+```{r}
+cepheids = cepheids %>%
+  mutate(avg_mag = (m_min + m_max) / 2)
+```
+
+Next, we compute the absolute magnitude for each star by using the known distance to the Large Magellanic Cloud they reside in (49.97 kiloparsecs) and applying the distance modulus formula to convert apparent magnitudes to absolute magnitudes. In this formula, shown below, $M$ represents the star's absolute magnitude, $m_avg$ represents its average apparent magnitude, and $d$ represents the distance in parsecs.
+
+$$
+M=m_{avg}-5log_{10}(d)+5
+$$
+
+Before using this formula, we must convert the distance of 49.97 kiloparsecs to parsecs. This can be done using the simple conversion $d_{pc}=d_{kpc}\times1000$, where $d_{pc}$ represents the distance in parsecs and $d_{kpc}$ represents the distance in kiloparsecs.
+
+```{r}
+d_pc = 49.97 * 1000
+```
+
+We can then calculate the absolute magnitudes of the stars for further analysis and plotting. We use our formula for absolute magnitude and the `mutate()` verb, creating the new column `abs_mag` to house them.
+
+```{r}
+cepheids = cepheids %>%
+  mutate(abs_mag = avg_mag - 5 * log10(d_pc) + 5)
+```
+
+Now that we have the star's absolute magnitudes, we can plot the relationship between the log of a star's period and its absolute magnitude, fitting a linear regression line to the data to visually observe the period-luminosity relation. First, we set `period_d`, or the period column in `cepheids`, to a numeric value using `as.numeric()`. This allows us to plot it correctly. Then, we use `ggplot()` from the `ggplot2` package to create our visualization, setting `log10(period_d)` to the x-axis and `abs_mag` to the y-axis. We also added a `geom_smooth()` layer to plot a linear fit over the data in blue. The result is a strong, negative, linear relationship.
+
+```{r}
+cepheids$period_d = as.numeric(cepheids$period_d)
+
+ggplot(cepheids, aes(x = log10(period_d), y = abs_mag)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE, col = "blue") +
+  labs(x = "Log(Period) (days)", y = "Absolute Magnitude", 
+       title = "Cepheid Period-Luminosity Relation") +
+  theme_minimal()
+```
+
+To save the necessary slope and intercept values for use in the Cepheid variable distance calculation in Part B, we performed a linear regression on the same two variables (log of a star's period and absolute magnitude). In the code, we use the `lm()` function, specifying our formula with `abs_mag ~ log10(period_d)`. This puts absolute magnitude on the y-axis and the log of the period on the x-axis.
+
+Calling `summary()` on our newly created `fit` allows a visual output of our coefficients and formula statistics. We can find the slope and intercept under the `Estimate` column in the summary. To select and save these values, we use `coef(fit)[]`, specifying the row in brackets. Using `as.numeric()` ensures that only the value itself is collected.
+
+```{r}
+fit = lm(abs_mag ~ log10(period_d), data = cepheids)
+summary(fit)
+
+slope_value = as.numeric(coef(fit)[2])
+intercept_value = as.numeric(coef(fit)[1])
+```
+
+## Part B: Lightcurve
+
+In Part B, we will find the period of a Cepheid variable star’s pulsations, and then use this information, alongside our findings from part A, to determine the distance to this star in parsecs. To begin, we load in the Cepheid variable light curve data and name it `lightcurve`.
+
+```{r, output=FALSE}
+lightcurve <- read_csv("C:/Users/glwei/Downloads/cepheid_lightcurve.csv")
+```
+
+To get an idea of the variables we're working with, we call `head()` on the data. Our two variables are `HJD`, which stands for Heliocentric Julian Day, and `V_mag`, which represents the apparent magnitude in the visual band. We will need both to plot the light curve and calculate the star's period, however, notice how `HJD` does not have equal time differences between measurements. This suggests that when we search for the period of the star, we will need to construct a Lomb-Scargle periodogram rather than use Fourier Analysis (FFT).
+
+```{r}
+head(lightcurve)
+```
+
+Visualizing the light curve will be our first goal. To do this, we use `ggplot()` to plot the apparent magnitude of the star (`V_mag`) as a function of time (`HJD`). This shows us the pulsations of the Cepheid variable star, which appear as vertical lines of concentrated points on our plot.
+
+```{r}
+ggplot(lightcurve, aes(x = HJD, y = V_mag)) +
+  geom_point() +
+  labs(title = "Cepheid Variable Light Curve", x = "Heliocentric Julian Day", y = "Apparent Magnitude") +
+  theme_minimal()
+```
+
+To extract the period of the star, we will use a Lomb-scargle periodogram. This will allow us determine the most significant pulsation period by finding the frequency with the highest power in the `lightcurve` data. Remember, we are not using an FFT because the time between consecutive `V-mag` measurements is not consistent. Below, we load in the `lomb` package, which contains the `lsp()` function we need for periodogram construction.
+
+```{r, output=FALSE}
+library(lomb)
+```
+
+Before creating the actual periodogram, we set our minimum and maximum period for use in the `lsp()` function, which requires us to provide a range of frequencies to check for. Because $T = \frac{1}{f}$, where $f$ stands for frequency and $T$ for period, we are able to insert minimum and maximum periods, converting them to frequencies for the model calculation.
+
+Our maximum period (`max_period`) is set as the span of the x-axis on the light curve graph above (1600 days). Because the curve is so sporadic, we can make a histogram of the time differences between each `V_mag` calculation and select the lowest time difference. By creating a new dataframe of differences called `diffs` and plotting it, we can see quite clearly that the lowest time difference is 1 day.
+
+```{r}
+#| warning: False
+
+diffs <- data.frame(Differences = diff(lightcurve$HJD))
+
+ggplot(diffs, aes(Differences)) + geom_histogram(color = "black", fill = "lightblue") + ggtitle("Histogram of Differences") + theme_minimal()
+```
+
+In light of our reasoning, we assign the variable `min_period` to 1 and the variable `max_period` to 1600.
+
+```{r}
+min_period = 1
+max_period = 1600
+```
+
+Next, we construct the Lomb-Scargle periodogram itself. We plug the `lightcurve` data into `lsp()` alongside our minimum and maximum periods divided by one (because of the frequency conversion formula). We also specify `ofac=5` to get a higher frequency of sampling. The resulting periodogram is shown below, where the period we are looking for is the spike on the left of the graph.
+
+```{r}
+lomb_lightcurve <- lsp(lightcurve, from=1/max_period, to=1/min_period, ofac=5)
+```
+
+To capture this periodic signal from the Lomb-Scargle periodogram, we first select the `power` vector of the Lomb-Scargle periodogram using `lomb_lightcurve$power`. `Power` (more specifically, normalized power) resides on the y-axis of the periodogram, so by using `which.max()` on it, we select the index of the element in the power vector that has the maximum value. To convert this to frequency (and then to period), we target the `scanned` vector (which contains the periodogram's frequencies). By selecting `scanned` from the light curve using `lomb_lightcurve$scanned[]` and placing the calculated index in the brackets, we find the max frequency of the star. We can then convert that using the same frequency to period conversion as before, or $T = \frac{1}{f}$, where $f$ stands for frequency and $T$ for period. The result is a pulsation period of approximately 5.366 days.
+
+```{r}
+period = 1 / lomb_lightcurve$scanned[which.max(lomb_lightcurve$power)]
+
+paste("Period:", period,"days")
+```
+
+To better visualize the extracted signal and "fold" it so that the x-axis proceeds from 0 to the length of the period instead of its full range of values, we can calculate the phase using the formula $ϕ = \frac{t}{T}$, where $ϕ$ represents the phase (in days in this case), $t$ represents Heliocentric Julian day (in days), and $T$ represents the period (also in days). Instead of simple division, we use the modulo operator `%%` to "wrap" the signal. This `phase` can then be added as a new column to the `lightcurve` dataset.
+
+```{r}
+phase <- lightcurve$HJD %% period
+lightcurve$phase <- phase
+```
+
+Now, using `ggplot()`, we can plot our newly acquired `phase` against `V_mag`, restricting the x-axis to approximately 5.4 days. The result is a graph of the signal across a single period, where we can clearly see a complete star pulsation.
+
+```{r}
+ggplot(lightcurve, aes(phase, V_mag)) + geom_point() + xlab("Phase") + ylab("Apparent Magnitude") + ggtitle("Star Pulsation Across a Single Period") + xlim(0,5.4) + theme_minimal()
+```
+
+Having found the Cepheid variable star's pulsation period, we can now compute its absolute magnitude for use in the eventual distance calculation. The formula for this is shown below, where $M_{abs}$ represents the star's absolute magnitude, $a$ and $b$ represent the slope and intercept we extracted from the linear fit in Part A (respectively), and $P$ represents the period.
+
+$$
+M_{abs}=alog_{10}(P)+b
+$$
+
+First, we assign the slope and intercept to `a` and `b` for simplicity's sake. Then, we plug them in alongside our period and calculate the absolute magnitude, or `M_abs`.
+
+```{r}
+a = slope_value
+b = intercept_value
+
+M_abs <- a * log10(period) + b
+```
+
+Finally, we calculate the distance to the star in parsecs using the formula for distance, where $m$ is the average apparent magnitude of the star from its light curve, $M$ represents its absolute magnitude, and $d$ represents distance (in parsecs).
+
+$$
+m-M=5log_{10}(d)-5
+$$
+
+In order to solve for distance, we rearranged the formula.
+
+$$
+d=10^{(\frac{m-M+5}{5})}
+$$
+
+In code, we found the average apparent magnitude of the star using the built in `mean()` function and assigned it to `m_avg`. Then, we plugged the necessary variables into our rearranged equation and found the star's distance, which is approximately 345.407 parsecs.
+
+```{r}
+m_avg = mean(lightcurve$V_mag)
+
+d_parsecs = 10^((m_avg - M_abs + 5) / 5)
+
+paste("Cepheid variable star distance:",d_parsecs,"parsecs")
+```
+
+## Conclusion
+
+In this problem, we analyzed Cepheid variable stars to understand the relationship between their pulsation periods and absolute magnitudes. Part A involved deriving the stars' period-luminosity relation by calculating their absolute magnitudes and periods and fitting a linear model, which provided us with a slope and intercept. Part B applied this model to determine the distance to a specific Cepheid variable star by analyzing its light curve data and calculating its pulsation period using the Lomb-Scargle method. The results highlight the utility of the period-luminosity relation as a powerful tool for estimating the distances to Cepheid variable stars, a key component in measuring cosmic distances.
