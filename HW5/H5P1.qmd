@@ -1,0 +1,223 @@
+---
+title: "Problem 1: Walking a Function"
+author:
+  - Gabriella Weis
+  - Salem Fraire
+  - Luna
+date: today
+format:
+ html:
+    embed-resources: true
+    theme: sandstone
+    title-block-banner: true
+editor: visual
+---
+
+## Introduction
+
+For this problem, we have been tasked with constructing and sampling from a given function using a Monte Carlo Markov Chain (MCMC). First, we will load in the group of packages `tidyverse` and the package `MASS`. `Tidyverse` contains the packages `ggplot2` and `dplyr`, which are useful for plotting and data manipulation. `MASS` contains `mvrnorm()`, a function used to generate multivariate normal samples. Since we are basing our MCMC sampling off of a function, we do not have any data to load in.
+
+```{r, output=FALSE}
+library(tidyverse)
+library(MASS)
+```
+
+The function we have been given to work with is as follows, where $x$ and $y$ represent the intake values.
+
+$$
+f(x,y) = 10\times exp(\frac{-(x-3)^2}{5}+\frac{-(y-1)^2}{10})
+$$
+
+We can define this as a function in code, which we do below. `Frac1` represents the first fraction, `frac2` represents the second, and we return the value for $f(x,y)$ by plugging them into the rest of the equation.
+
+```{r}
+f <- function(x, y) {
+  frac1 = -(x-3)^2/5
+  frac2 = -(y-1)^2/10
+  return(10*exp(frac1 + frac2))
+}
+```
+
+## Part A: Function Visualization
+
+In order to get an idea of what we expect the output of our sampling to look like, we can create a visualization (or two) of the function. First, we decided to make a contour plot, which grants us a 2D, "top-down" view of our function. This involved first creating a grid of x and y values (`x_vals`, `y_vals`), using `seq()` to generate 100 equally spaced values between -2 and 8 and the same for -4 and 6. Then we used `expand.grid()` to create a `grid` with every possible x-y pair (10,000 point grid) and `with()` to apply the function and store the result ($z$) in `grid`. Finally, using `ggplot()` from `ggplot2`, we created our contour plot. It plots $x$ on the x-axis, $y$ on the y-axis, and fills by $f(x,y)$. Using this plot, we may assume that our function creates a 3D Gaussian, but just to make sure, we decided to create a 1D "slice" (or cross-section).
+
+```{r}
+x_vals <- seq(-2, 8, length.out = 100)
+y_vals <- seq(-4, 6, length.out = 100)
+grid <- expand.grid(x = x_vals, y = y_vals)
+grid$z <- with(grid, f(x, y))
+
+ggplot(grid, aes(x, y)) +
+  geom_contour_filled(aes(z = z)) +
+  scale_fill_viridis_d() +
+  labs(title = "Filled Contour Plot of f(x, y)",
+       x = "X", y = "Y", fill = "f(x, y)") +
+  theme_minimal()
+```
+
+To create a cross-section, we created another string of x values between -2 and 8 (this time 200 of them) and assign them to `x_vals`. We also fixed our y at 1 (`y_fixed`). This means we're evaluating $f(x,1)$ across all of our x-values, ensuring the "slice" effect. The `z_vals` are the result of this, which we add to a dataframe alongside our `x_vals` using `data.frame()`. Then we plotted our function slice (`f_slice`) using `ggplot()`. What we see is a clear 1D Gaussian. Now we can proceed knowing the basic shape of our function.
+
+```{r}
+x_vals <- seq(-2, 8, length.out = 200)
+y_fixed <- 1
+z_vals <- f(x_vals, y_fixed)
+f_slice <- data.frame(x = x_vals, z = z_vals)
+
+ggplot(f_slice, aes(x = x, y = z_vals)) +
+  geom_line(color = "blue") +
+  labs(title = "X vs. f(x, y) for y = 1",
+       x = "X", y = "f(x, y)") +
+  theme_minimal()
+```
+
+## Part B: Monte Carlo Markov Chain
+
+Using the Metropolis-Hastings algorithm, we will create an MCMC sampler to sample from our function. First, to ensure replicable results for simplicity's sake, we set the seed to a random number (73 in this case) using `set.seed()`. We also create a 2X2 diagonal covariance matrix to be used in the function's sampling (`cov_matrix`), which describes the variance (spread) in both the x and y directions (here, both the x and y variances equal 0.1).
+
+```{r}
+set.seed(73)
+
+cov_matrix <- matrix(c(0.1, 0, 0, 0.1), nrow = 2)
+```
+
+Now to create the function itself. It takes in our 3D Gaussian function (`func`), the start values for the sampler (`start`), and the number of steps the sampler will take (`num_steps`), and begins by assigning the start values to the `chain`. This is what will hold our samples. `Current` is created next to represent our current point in the chain.
+
+The main loop proposes a new 2D point (`proposed`) at each step using a multivariate normal distribution centered at `current` (this is where the function `mvnorm()` from the package `MASS` comes in). `Cov_matrix` defines the shape and spread of the distribution. Then, using the acceptance ratio $ratio = \frac{P(proposed)}{P(current)}$ and by comparing to a uniform, randomly generated number (in the `if` statement), the sampler decides to either accept or reject the next point. Acceptance will mean moving to it, which involves assigning `current` to the `proposed` and adding it to the `chain`. After running through all the steps specified, we return our final `chain`.
+
+```{r}
+mcmc <- function (func, start, num_steps) {
+  chain <- c(start)
+  current <- start
+  for (i in 1:num_steps) {
+    proposed = mvrnorm(1, current, cov_matrix)
+    ratio <- func(proposed[1],proposed[2]) / func(current[1],current[2])
+    if (ratio > runif(1)) {
+      current <- proposed
+    }
+    chain <- rbind(chain, current)
+  }
+  return (chain)
+}
+```
+
+Next, we can use our `mcmc` function! We input our function (`f`), our starting points (-10,10), and the number of steps to iterate over (5000). We then convert this result into a dataframe using `data.frame()`, rename its columns to $x$ and $y$, and create a new column with `mutate()` that holds the row numbers. The output is called `mcmc_result`.
+
+```{r}
+mcmc_result <- data.frame(mcmc(f, c(-10, 10), 5000)) %>%
+  `colnames<-`(c("x", "y")) %>%
+  mutate(row = row_number())
+```
+
+To visualize our chain and the behavior of the sampler, we can create two separate trace plots using `ggplot()`, which plot the x and y values in the chain against our row iteration. For our x trace plot, we see a pretty obvious burn-in, where the chain clearly stabilizes and finds the right place in the distribution to bounce around. In the y trace plot, though less extreme, there is also an obvious burn-in and stabilization point.
+
+```{r}
+#| layout-ncol: 2
+#| column: page
+#| warning: False
+#| code-fold: True
+
+ggplot(mcmc_result, aes(x = row, y = x)) + 
+  geom_line() + 
+  labs(title = "Trace Plot (X)",
+       x = "Iteration", y = "X") + 
+  theme_minimal()
+
+ggplot(mcmc_result, aes(x = row, y = y)) + 
+  geom_line() + 
+  labs(title = "Trace Plot (Y)",
+       x = "Iteration", y = "Y") + 
+  theme_minimal()
+```
+
+## Part C: Burn-in, Histograms, and Function Comparison
+
+Now that we know where our burn-in ends and the chain stabilizes, we can select only the iterations after the burn-in point using the `dplyr` verb `filter()`. We decided we'd rather be safer than sorry, and selected a reasonable row-cutoff point of 200.
+
+```{r}
+noburn <- mcmc_result %>%
+  filter(row > 200)
+```
+
+Using our newly obtained post-burn-in data (`noburn`), we can create two histograms, one for the x samples (in blue) and one for the y samples (in green). Both appear to be fairly normal/Gaussian looking distributions, which is great because that's the way our original function looks! We will now use another contour plot and two KDE plots to visually compare these sampled frequencies back to our original function.
+
+```{r}
+#| layout-ncol: 2
+#| column: page
+#| warning: False
+#| code-fold: True
+
+ggplot(noburn, aes(x)) +
+  geom_histogram(bins = 50, fill = "skyblue", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of X Samples", x = "X", y = "Count") +
+  theme_minimal()
+
+ggplot(noburn, aes(y)) +
+  geom_histogram(bins = 50, fill = "lightgreen", color = "black", alpha = 0.7) +
+  labs(title = "Histogram of Y Samples", x = "Y", y = "Count") +
+  theme_minimal()
+```
+
+First, we will create a 2D contour plot using `ggplot()`, where x is plotted along the x-axis and y is plotted along the y-axis. The fill is set to "density". The result appears to be a noisier version of our original function, which makes sense considering what our MCMC sampler is meant to do: *sample*. This 2D "top-down" view is a good sign, but we're not done. We also wanted to compare 1D "slices", or cross-sections, for further certainty.
+
+```{r}
+ggplot(noburn, aes(x, y)) +
+  geom_density_2d_filled(contour_var = "density") +
+  theme_minimal() +
+  labs(title = "Contour Plot of MCMC Samples", x = "X", y = "Y", fill = "Density")
+```
+
+These cross-sections, or 1D KDE plots, were a bit more complicated than the contour plots and histograms. Starting with the x-slice, we normalize the true function's slice (so that its area is approximately 1). Then we created a dataframe (`f_df`) containing the true function's `x_vals` and its density. We then deal with the MCMC samples, using `density()` on `noburn`'s x values to estimate the probability density function from those samples. This has two outputs: `x_kde$x`, which contains the x-axis points (where the density was evaluated), and `x_kde$y`, which contains the estimated density values at those points. We can place these in their own dataframe and then normalize it so that the area under the curve once again adds up to 1 (because it represents probability). 
+
+```{r}
+f_norm <- z_vals / sum(z_vals)
+f_df <- data.frame(x = x_vals, density = f_norm)
+
+x_kde <- density(noburn$x)
+x_kde_df <- data.frame(x = x_kde$x, density = x_kde$y)
+x_kde_df$density <- x_kde_df$density / sum(x_kde_df$density)
+```
+
+The second step is plotting with `ggplot()`. We assign the blue line to the true function and the red line to the sampled x values, setting x to `x` and y to `density`. The result is a plot of two density curves, the taller of which (blue, true function) appears to be a scalar multiple of the shorter (red, x samples). The distributions match fairly closely in shape, but not entirely, since the MCMC sampler is purely *sampling* from the actual function (which creates noise).
+
+All in all, this KDE plot produces a useful performance check for the MCMC sampler. The close similarity in shape suggests that the sampler is correctly exploring the higher density areas of the function (despite small natural discrepancies from randomness).
+
+```{r}
+#| warning: False
+
+ggplot() +
+  geom_line(data = f_df, aes(x = x, y = density), color = "blue", size = 1) +
+  geom_line(data = x_kde_df, aes(x = x, y = density), color = "red", size = 1) +
+  labs(title = "Slice of f(x, y=1) vs. Slice of Sampled X Distribution",
+       x = "X", y = "Normalized Density",
+       caption = "Blue: Function\nRed: Sampled X Distribution") +
+  theme_minimal()
+```
+For our second KDE plot, which will compare y-slices, we must first create our length of y values (`y_vals`) for the true function in the same way we've done previously. Then we fix our x at 1, calculate the necessary z values (`z_vals`) using the `x_fixed`, and proceed with the rest of the preparation process in the same way as we did for the x slice (replacing all x terms with y).
+
+```{r}
+y_vals <- seq(-6, 8, length.out = 200)
+x_fixed <- 1
+z_vals <- f(x_fixed, y_vals)
+
+f_norm <- z_vals / sum(z_vals)
+f_df <- data.frame(y = y_vals, density = f_norm)
+
+y_kde <- density(noburn$y)
+y_kde_df <- data.frame(y = y_kde$x, density = y_kde$y)
+y_kde_df$density <- y_kde_df$density / sum(y_kde_df$density)
+```
+
+Our plot of the true function y-slice versus the MCMC sampler distribution's y-slice is similar to the plot of the x-slices. We assigned the blue line to the true function and the red line to the sampled y values, setting x to `y` and y to `density`. Once again, the true function seems to be a scalar multiple of the sampled distribution, and, despite noise due to sampling randomness, the shape also appears to be similar. As a result, the y KDE plot also seems to suggest that the sampler is correctly exploring the higher density areas of the function.
+
+```{r}
+#| warning: False
+
+ggplot() +
+  geom_line(data = f_df, aes(x = y, y = density), color = "blue", size = 1) +
+  geom_line(data = y_kde_df, aes(x = y, y = density), color = "red", size = 1) +
+  labs(title = "Slice of f(x=1, y) vs. Slice of Sampled Y Distribution",
+       x = "Y", y = "Normalized Density",
+       caption = "Blue: Function\nRed: Sampled Y Distribution") +
+  theme_minimal()
+```

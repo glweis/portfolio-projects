@@ -1,0 +1,417 @@
+---
+title: "Problem 2: Walking a Likelihood"
+author:
+  - Gabriella Weis
+  - Salem Fraire
+  - Luna
+date: today
+format:
+ html:
+    embed-resources: true
+    theme: sandstone
+    title-block-banner: true
+editor: visual
+---
+
+## Introduction
+
+In this problem, we have been tasked with using Monte Carlo Markov Chain (MCMC) methods and Baye’s theorem to examine and estimate parameter uncertainties from a model fit. For the model, we will be using Planck's Law. We will compare the results we get from a curve fit to our MCMC results.
+
+First, we will load in the group of packages `tidyverse` and the package `MASS`. `Tidyverse` contains the packages `ggplot2` and `dplyr`, which are useful for plotting and data manipulation. `MASS` contains `mvrnorm()`, a function used to generate multivariate normal samples. We will also load in the data, which is a stellar spectrum of wavelengths and flux values, naming it `star`.
+
+```{r, output=FALSE}
+library(tidyverse)
+library(MASS)
+
+star <- read_csv("C:/Users/glwei/Downloads/star_flux.csv")
+```
+
+Using `head()`, we can take a look at the first six rows of the `star` data, noting the content of its only two columns. We have `wavelength_nm`, which contains wavelength values given in nanometers, and `flux`, which contains flux values in uncalibrated intensity measurements (no units). These are necessary for our model fit calculations.
+
+```{r}
+head(star)
+```
+
+## Part A: Planck's Law
+
+To form a point of comparison to our MCMC methods, we will fit Planck's Law to the data using a curve fit method. This will mean creating a function for Planck's Law according to the equation below, where:
+
+  * *h* = 6.6261e-34 (joules $\times$ seconds)
+  * *c* = 3e8 (speed of light in meters per second)
+  * $k_B$ = 1.381e-23 (joules per kelvin)
+  * *λ* = wavelength (meters)
+  * *T* = temperature (kelvin)
+  * *B(λ,T)* = brightness (or flux)
+  * *ε* = emissivity (value between 0-1)
+
+$$
+B(λ,T) = ε\times\frac{2hc^2}{λ^5}\frac{1}{exp(\frac{hc}{λk_BT})-1}
+$$
+
+We can translate this equation into code with the function below, which takes in wavelength (in meters), emissivity, and temperature (in kelvin). After setting our constants `h`, `c`, and `kB`, we split the formula into two fractions (`frac1` and `frac2`). Then, we return the product of the two, which represents the flux.
+
+```{r}
+h = 6.621e-34 # Js
+c = 3e8 # m/s
+kB = 1.381e-23 # J/K
+
+planck <- function(wavem, em, temp) {
+  frac1 = em*2*h*c^2/wavem^5
+  frac2 = 1/(exp(h*c/(kB*temp*wavem))-1)
+  return(frac1*frac2)
+}
+```
+
+Before fitting our data with this function, we must first convert our current wavelength measurements from nanometers to meters. The conversion is simple: $w_m=w_{nm}\times 10^{-9}$, where $w_m$ represents wavelength in meters and $w_{nm}$ represents wavelength in nanometers. We used the `dplyr` verb `mutate()` to create a new column in the `star` dataset, called `wavem`, to contain these values.
+
+```{r}
+star <- star %>%
+  mutate(wavem = wavelength_nm*(1e-9))
+```
+
+We also decided to plot our star's spectral curve before model fitting. We used `ggplot()` from `ggplot2`, assigned x to `wavem` and y to `flux`, and added `geom_line()` for visualization purposes. The result is a fairly normal looking curve. Once we've fitted the model, we will plot our curve over this data to perform a quick sanity check.
+
+```{r}
+ggplot(star, aes(wavem, flux)) + 
+  geom_line() +
+  labs(x = "Wavelength (meters)",
+       y = "Flux") +
+  theme_minimal()
+```
+
+Finally, we will fit a curve to our data using Planck's Law with the `nls()` function. We set our equation `(flux ~ planck(wavem, em, temp))`, specifying the data `(data = star)` and making reasonable guesses for `em` and `temp` with `(start = list(em = 0.1, temp = 6000))`. We assigned this fit to the variable `model` and its predicted flux values to `curve` for future plotting.
+
+```{r}
+model <- nls(flux ~ planck(wavem, em, temp), data = star, start = list(em = 0.1, temp = 6000))
+curve <- predict(model)
+```
+
+Before moving on to saving and storing values, it would be best to do a quick sanity check on our curve fit. This will make sure everything went well and that we don't have a disastrously poor fit. To do this check, we plot the original `star` data again, which is simply wavelength (in meters) against flux, coloring it red this time and making it slightly more transparent using `alpha = 0.5`. To represent our curve fit, we added a `geom_line()` in black, setting the y value in the aesthetics to `curve`. The result is a plot of a curve that follows the original data closely! This means that we were successful and can now proceed with confidence in our model fitting.
+
+```{r}
+#| warning: False
+
+ggplot(star, aes(wavem, flux)) + geom_line(color = "red", alpha = 0.5) +
+  labs(x = "Wavelength (meters)",
+       y = "Flux") + 
+  geom_line(aes(wavem, curve), color = "black", size = 1) +
+  theme_minimal()
+```
+
+In order to use this model as a comparison to MCMC methods, we should extract its parameters for temperature and emissivity. We do this using the function `coef()` on the `model`, selecting by the names `em` and `temp`, and save both values in their respective variables (`em_param` and `temp_param`).
+
+```{r}
+em_param <- coef(model)["em"]
+temp_param <- coef(model)["temp"]
+```
+
+Next, we create a covariance matrix (`cov_matrix`) using the function `vcov()` on the `model`, which creates a variance-covariance matrix of the estimated coefficients. In this matrix, the diagonal elements are variances of each estimated coefficient, and the off-diagonal elements are covariances between pairs of coefficients. In our case, the important terms are the diagonal terms, which describe the variance (standard deviation squared) of the parameters emissivity and temperature. We can select those from our created `cov_matrix` and assign them to their own variables, `em_var` and `temp_var`. However, we're not done. We should take the square root (`sqrt()`) of these variances to get standard deviations, which will be used in future comparisons with the MCMC methods. We also print them out using the `cat()` function, which will interpret our `\n` line breaks.
+
+```{r}
+cov_matrix <- vcov(model)
+em_var <- cov_matrix["em","em"]
+temp_var <- cov_matrix["temp","temp"]
+
+em_sdc <- sqrt(em_var)
+temp_sdc <- sqrt(temp_var)
+
+cat("Emissivity parameter fit:",em_param,"\nEmissivity uncertainty:",em_sdc,"\n")
+cat("Temperature parameter fit:",temp_param,"Kelvin","\nTemperature uncertainty:",temp_sdc,"Kelvin\n")
+```
+
+## Part B: MCMC Methodology
+
+In the second major section of this problem, we will apply MCMC methods to see how our parameters and their variances might compare. The first step in this process is defining log versions of our Prior, Likelihood, and probability distribution functions. It's important to specify what each of these are, and why they matter to us. Their relationship is described by Baye's Law, where $P(θ|D)$ represents the Posterior (or probability distribution), $P(D|θ)$ represents the Likelihood, $P(θ)$ represents the Prior, and $P(D)$ represents the Evidence.
+
+$$
+P(θ|D) = \frac{P(D|θ)\times P(θ)}{P(D)}
+$$
+
+But what do each of these really mean? And why do we need to create log versions of them?
+
+The *Prior* is the probability of the parameters without any consideration of the data, which is to say it represents your initial belief or assumption about the parameter before you’ve seen the data.
+
+The *Likelihood* is the probability of getting the data given the parameters. This models how likely the observed data is, given different parameter values.
+
+The *Evidence* is the probability of the data being the way it is. Because it doesn't depend on the parameters, it's just a constant scaling factor, and we don't need to create a function for it.
+
+The *Posterior* is the probability of the parameters given the data, which is what we want to find! It represents the probability distribution of the parameter after observing the data.
+
+Because of the massive range of values that result when computing the right-hand side of our equation (above), and to avoid overflow/underflow errors, we will work with these functions in log-space.
+
+
+Our first function is that of the log version of the Prior. It takes in the vector `params` and unpacks it into three terms: `em` (emissivity, which should be between 0 and 1), `temp` (temperature in kelvin, which must be greater than or equal to 0), and `flux_e` (flux error, which also must be greater than or equal to 0). The flux error is new here; we did not have it in our curve fit model. In `ln_prior`, if any parameter is outside of its valid range, the function returns `-Inf`. In other words, the parameter combination is impossible and has zero probability under the Prior. Otherwise, the function returns 0 (1 in log-space), which corresponds to a uniform Prior over the acceptable region.
+
+```{r}
+ln_prior <- function(params) {
+  em <- params[1]
+  temp <- params[2]
+  flux_e <- params[3]
+  
+  if (em <= 0 || em > 1) return(-Inf)
+  if (temp <= 0) return(-Inf)
+  if (flux_e <= 0) return(-Inf)
+  
+  return(0)
+}
+```
+
+Next is the log Likelihood, which also takes in the vector `params` alongside the data (which will be `star`). After unpacking our `params` in the same way as we did for the Prior, we compute the predicted temperature and emissivity values for our Planck function at given wavelengths (in meters). Then we calculate the difference between the observed flux and the predicted flux from the model and store them in `residuals`. This will help us understand how far off our predictions are from the actual data. We also save the length of the `residuals` in `n`.
+
+The last piece of the function involves our log Likelihood formula. We break it down into two terms (`term1` and `term2`), but the complete formula is shown below in its entirety.
+
+  * $y_i$ = observed data
+  * $\hat{y_i}$ = model prediction for each $y_i$
+  * $σ$ = the standard deviation of the error (uncertainty)
+  * $n$ = number of observations
+
+$$
+LogL(θ) = -\frac{1}{2σ^2}\sum_{i=1}^n(y_i-\hat{y_i})^2-\frac{n}{2}log(2πσ^2)
+$$
+
+In our function, `term1` represents the first half of the formula. It penalizes bad fits, because the bigger the error, the more negative it grows.
+
+$$
+-\frac{1}{2σ^2}\sum_{i=1}^n(y_i-\hat{y_i})^2
+$$
+`Term2` represents the second half of the formula. It is the normalizing constant from the normal distribution, and ensures that the full probability integrates to 1.
+
+$$
+-\frac{n}{2}log(2πσ^2)
+$$
+All of this is implemented into the log Likelihood function below, which returns the sum of `term1` and `term2`.
+
+```{r}
+ln_likelihood <- function(params, data) {
+  em <- params[1]
+  temp <- params[2]
+  flux_e <- params[3]
+  
+  y_model <- planck(data$wavem, em, temp)
+  residuals <- data$flux - y_model
+  n <- length(residuals)
+  
+  term1 <- -0.5 * sum((residuals)^2) / (flux_e^2)
+  term2 <- -0.5 * n * log(2 * pi * flux_e^2)
+  
+  return(term1 + term2)
+}
+```
+
+The final log function that we must define is the Posterior, or probability distribution (which also takes in the vector `params`). First, it calls our `ln_prior` function, which returns 0 if parameters are valid and `-Inf` if they are not. If it does return `-Inf`, the `ln_pdf` also returns `-Inf`, which means that because the parameter set is invalid, it will have zero probability in the Posterior.
+
+Next, the function computes the Likelihood based on our model's predictions versus the actual `star` data (using our `ln_likelihood` function). Afterward, we return the sum of the `prior` and `likelihood` calculations. This is the log Posterior, which tells us how probable our parameters are, given the data and our other prior assumptions.
+
+```{r}
+ln_pdf <- function(params) {
+  prior <- ln_prior(params)
+  if (!is.finite(prior)) return(-Inf)
+  
+  likelihood <- ln_likelihood(params, star)
+  return(prior + likelihood)
+}
+```
+
+Now that we have our log functions, (and after setting a random seed for reproducibility) we can create our Markov Chain Monte Carlo (MCMC) sampler. This is a fairly long function, so I will keep descriptions of its function general.
+
+The function takes in `log_pdf` (our log Posterior function), `start` (our three starting values in parameter space), `num_steps` (the number of MCMC iterations), and `proposal_cov` (a covariance matrix for the proposal distribution, which controls step size and direction).
+
+First, we initialize the `chain` to store our samples, the `current` position of the sampler, and the `current_log_prob`, which represents the log Posterior at the current position. Then, we perform the main loop. For `num_steps` iterations, at each step we:
+
+  * Use a multivariate normal distribution (from the package `MASS`'s `mvrnorm()` function) to propose a new candidate near the current point (and evaluate the log Posterior at the proposed point)
+  * Compute the log acceptance ratio, which is the log of the formula $ratio = \frac{P(proposed)}{P(current)}$
+  * Either accept or reject the proposed point (`log(runif(1))` gives us a random threshold in log-space to compare against)
+  * Store the current sample in our `chain`
+  
+At the end of sampling, we return our final `chain`.
+
+```{r}
+set.seed(70)
+
+mcmc <- function(log_pdf, start, num_steps, proposal_cov) {
+  chain <- matrix(NA, nrow = num_steps, ncol = length(start))
+  current <- start
+  current_log_prob <- log_pdf(current)
+
+  for (i in 1:num_steps) {
+    proposed <- mvrnorm(1, current, proposal_cov)
+    proposed_log_prob <- log_pdf(proposed)
+    
+    log_ratio <- proposed_log_prob - current_log_prob
+
+    if (log_ratio > log(runif(1))) {
+      current <- proposed
+      current_log_prob <- proposed_log_prob
+    }
+    
+    chain[i, ] <- current
+  }
+
+  return(chain)
+}
+```
+
+Before we can actually make use of our `mcmc` sampler function, we have to choose proposal standard deviations (one for emissivity, one for temperature, and one for flux error). These are important because they define the movement of the `chain` for each parameter (some require higher standard deviations and others require lower).
+
+Our proposed standard deviation is $5\times 10^{-12}$ for emissivity, $5$ for temperature, and $10$ for flux error. We store these values in `proposal_sd`.
+
+```{r}
+proposal_sd <- c(5e-12, 5, 10)
+```
+
+Then, using our proposed standard deviations, we create a proposal covariance matrix (`proposal_cov`) to be passed into our `mcmc` function. This matrix contains our parameter variances (squared standard deviations) and controls the size of the steps, the shape of the jumps, and whether parameters are proposed independently or together. In our case, due to the nature of MCMC samplers, the parameters are proposed independently. Therefore, we use the function `diag()` to create a diagonal matrix where all non-diagonal elements are 0. This essentially eliminates correlation between proposed parameter values.
+
+```{r}
+proposal_cov <- diag(proposal_sd^2)
+```
+
+Finally, we can run our `mcmc` function! We pass in our `ln_pdf` function, three reasonable starting points (emissivity, temperature, and flux error from left to right), the number of steps that the sampler will iterate over, and the proposal covariance matrix. The result is saved in `chain` for plotting.
+
+```{r}
+chain <- mcmc(
+  log_pdf = ln_pdf,
+  start = c(1e-9, 5500, 2100),
+  num_steps = 7000,
+  proposal_cov = proposal_cov
+)
+```
+
+It's time to plot the `chain` for each parameter. In order to make a faceted plot, we should first convert `chain` to a dataframe (`chain_long`), set the column names to their respective parameters, create a column of row numbers, and use `pivot_longer()` to convert from wide to long format (where one column contains all parameters).
+
+```{r}
+chain_long <- as.data.frame(chain) %>%
+  setNames(c("Emissivity", "Temperature", "Flux Error")) %>%
+  mutate(row = row_number()) %>%
+  pivot_longer(cols = Emissivity:`Flux Error`, names_to = "parameter", values_to = "value")
+```
+
+We once again use `ggplot()` for plotting, inputting `chain_long` as the data, `row` as the x value, and `value` as the y value (which represents the measurement for its corresponding parameter). `Facet_wrap()` allows us to plot all the parameters on their own plots, but also together as a single output. The result is three trace plots, one for emissivity, one for flux error, and one for temperature. For all three plots, there is a clear burn-in point around the 500th iteration, where the chain stabilizes around the true parameter value. This is a good sign! It means that our starting points were reasonable enough that the `chain` could find its way into the high-probability region of our distribution.
+
+```{r}
+ggplot(chain_long, aes(row, value)) +
+  geom_line() +
+  facet_wrap(~ parameter, scales = "free_y", ncol = 1) +
+  labs(title = "MCMC Trace Plots", x = "Iteration", y = "Value") +
+  theme_minimal()
+```
+
+## Part C: Post-Burn-in Analysis and Model Comparison
+
+To analyze our MCMC method results, we must first slice out only the data from our walker past the burn-in point. In Part B, we determined this point to be around 500. Using the `dplyr` verb `filter()` and the pipe operator, we select all iterations after the burn-in and assign it to `noburn`.
+
+```{r}
+noburn <- chain_long %>%
+  filter(row > 500)
+```
+
+Using this data, we can create histograms of each of the parameters. These all follow the same format in `ggplot()`. Most notably, they use `filter()` to select each parameter, since the data is still in long format.
+
+The three histograms that we create represent pieces of our Posterior distribution. They tell us what values are more/less probable and present us with a visual shape of each parameter distributions. Our histograms, though noisy due to random sampling, appear to resemble bell curves. This makes sense because our Likelihood calculation assumes that the errors in our `star` data are normally distributed around our model's predictions; essentially, our residuals are assumed to follow a Gaussian distribution.
+
+```{r}
+#| layout-ncol: 3
+#| column: page
+#| warning: False
+#| code-fold: True
+
+ggplot(filter(noburn, parameter == "Emissivity"), aes(value)) +
+  geom_histogram(bins = 50, fill = "skyblue", color = "white") +
+  labs(title = "Posterior: Emissivity", x = "Emissivity", y = "Count") +
+  theme_minimal()
+
+ggplot(filter(noburn, parameter == "Temperature"), aes(value)) +
+  geom_histogram(bins = 50, fill = "tomato", color = "white") +
+  labs(title = "Posterior: Temperature", x = "Temperature (K)", y = "Count") +
+  theme_minimal()
+
+ggplot(filter(noburn, parameter == "Flux Error"), aes(value)) +
+  geom_histogram(bins = 50, fill = "seagreen", color = "white") +
+  labs(title = "Posterior: Flux Error", x = "Flux Error", y = "Count") +
+  theme_minimal()
+```
+
+To compare results between methods, we can compute the mean and standard deviation of our (MCMC) sampled distributions for each parameter. First, grouping by each parameter, we calculate the median and standard deviation of each and print the resulting tibble out. Then we save all values (except for the flux error median, which we don't need) to its own unique variable for printing purposes (for example, the median of emissivity is called `em_med`).
+
+```{r}
+stats <- noburn %>%
+  group_by(parameter) %>%
+  summarise(median = median(value, na.rm = TRUE), `standard deviation` = sd(value, na.rm = TRUE))
+stats
+
+em_med <- as.numeric(stats[1,2])
+em_sdm <- as.numeric(stats[1,3])
+flux_sd <- as.numeric(stats[2,3])
+temp_med <- as.numeric(stats[3,2])
+temp_sdm <- as.numeric(stats[3,3])
+```
+
+Next, we can use the `cat()` function to print out our results for each method and compare them (note that we do not have any flux error calculations from curve fit, so we will have to compare flux results in another way). As for the other parameter calculations, we can see several things.
+
+  * Our median values for emissivity and temperature (from the MCMC sampler) are *extremely* close to their respective best fits that we calculated using the curve fit.
+  * Our computed standard deviations/uncertainty measurements for emissivity and temperature (from the MCMC sampler) are also very close to their respective values from curve fit.
+
+```{r}
+cat("Emissivity parameter fit (curve fit):",em_param,"\nEmissivity median (MCMC):",em_med,"\n\n")
+cat("Temperature parameter fit (curve fit):",temp_param,"Kelvin","\nTemperature median (MCMC):",temp_med,"Kelvin","\n\n")
+
+cat("Emissivity uncertainty/sd (curve fit):",em_sdc,"\nEmissivity uncertainty/sd (MCMC):",em_sdm,"\n\n")
+cat("Temperature uncertainty/sd (curve fit):",temp_sdc,"Kelvin","\nTemperature uncertainty/sd (MCMC):",temp_sdm,"Kelvin")
+```
+
+Next, we should evaluate the flux error that we found using MCMC sampling by comparing it to the original `star` flux measurements and looking at the plot of flux versus wavelength. To begin this analysis, we can print out the flux uncertainty value, which is approximately 26.594, using `cat()`.
+
+```{r}
+cat("Flux uncertainty/sd (MCMC):",flux_sd)
+```
+Then, we can plot the original `star` data against our Planck curve fit to get a visual (the same way we did in Part A). On the resulting graph, the red star spectrum fluctuates slightly along the black curve but follows the model fit closely (sharp spikes are sparse). Therefore, we can conclude that a ~26.594 flux uncertainty appears very reasonable.
+
+```{r}
+#| warning: False
+
+ggplot(star, aes(wavem, flux)) + geom_line(color = "red", alpha = 0.5) +
+  labs(x = "Wavelength (meters)",
+       y = "Flux") + 
+  geom_line(aes(wavem, curve), color = "black", size = 1) +
+  theme_minimal()
+```
+
+## Part D: Testing Model Sensitivity
+
+Proceeding with some follow-up analysis, we can explore how sensitive our model was to our parameters. This will mean randomly selecting 100 parameter combinations from our post-burn-in data, looping over them and computing Planck model results for each, and plotting them on the same plot with a high degree of transparency. This will tell us whether or not the variation in the parameter results is significantly affecting the model.
+
+Below, we take 100 random samples using `slice_sample()`. We also make sure to include `pivot_wider()` to convert our sample data to wide format (it used to be in long). 
+
+```{r}
+samples <- noburn %>%
+  pivot_wider(names_from = parameter, values_from = value) %>%
+  slice_sample(n = 100)
+```
+
+Next comes the calculations for our predictions (this has a lot of pieces). First, we create the new row `id` using `mutate()`. Each `id` row will correspond to a different model (which is useful for plotting). Next, we use `rowwise()` to specify that the following operations occur for every row in `samples`. We calculate the predicted flux (`model_flux`) using our Planck function for every row, for every wavelength (meters) in the `star` dataset. Afterwards, we `ungroup()` from `rowwise()` (we stop operating on every row individually), and use `unnest_longer()` to make each predicted flux its own row. This should result in a dataset of 390900 rows (which is the number of rows in `star` times the number of rows in `samples`, or $100\times3909$). The final `mutate()` repeats the original `wavem` vector from `star` 100 times (once per sample), assigning it as a new `wavem` column in `preds` so that each predicted model flux value has its corresponding wavelength (in meters).
+
+```{r}
+preds <- samples %>% 
+  mutate(id = row_number()) %>%
+  rowwise() %>%
+  mutate(model_flux = list(planck(star$wavem, Emissivity, Temperature))) %>%
+  ungroup() %>%
+  unnest_longer(model_flux) %>%
+  mutate(wavem = rep(star$wavem, times = nrow(samples)))
+```
+
+The last step is plotting with `ggplot()`. For this, we plotted several curves using `geom_line()`: one for the original `star` data (red, set at a low transparency) and 100 for the 100 model calculations we made using Planck's Law based on our post-burn-in data (black, also set at a low transparency). We grouped the 100 model curves by `id`, which we created specifically for this purpose.
+
+The final plot, where we overlaid 100 Planck model predictions (each generated from a different set of sampled MCMC parameters) suggests that the variation among parameter sets results in very minor differences in the predicted flux. This is a good sign because it means that the model is not very sensitive, and the uncertainty in parameters does not cause large deviations in model output.
+
+```{r}
+ggplot() +
+  geom_line(data = preds,
+            aes(x = wavem, y = model_flux, group = id),
+            color = "black", alpha = 0.3) +
+  geom_line(data = star,
+             aes(x = wavem, y = flux),
+             color = "red", size = 1, alpha = 0.3) +
+  labs(x = "Wavelength (meters)", y = "Flux",
+       title = "100 MCMC Model Predictions vs. Observed Data") +
+  theme_minimal()
+```
