@@ -1,0 +1,219 @@
+---
+title: "Extracting Components of a Signal With FFT"
+author:
+  - Gabriella Weis
+  - Mamadou Dem
+date: today
+format:
+ html:
+    embed-resources: true
+    theme: cosmos
+    title-block-banner: true
+editor: visual
+---
+
+## Introduction
+
+In this problem, we are tasked with extracting the components of a mixed signal and examining the noise that was added to it. This will involve performing a Fast Discrete Fourier Transform in order to visualize the signal's frequencies, periods, amplitudes, and phases, plotting the components individually, and computing residual differences for noise analysis. To begin, we loaded in the collection of packages `tidyverse`, which contains `ggplot2` and `dplyr`. `Ggplot2` will be useful for plotting and `dplyr` will assist with data organization and manipulation. We also called in a file called `fftutils.r`, which will allow us to calculate frequencies for Fourier analysis (further explained later). The data, which we named `prob1` for simplicity's sake, is loaded in as well.
+
+```{r, output=FALSE}
+library(tidyverse)
+source("fftutils.r")
+
+prob1 <- read_csv("C:/Users/glwei/Downloads/Prob1.csv")
+```
+
+We took a look at the first six rows of the data using `head()`, noting that its only two variables are `time` and `signal`. `Time` is measured in seconds and `signal` will be taken to be in meters. Taking a quick glance at the `time` column, we see that all of its increments seem to be consistent. This means that we can use Fourier analysis to extract each component.
+
+```{r}
+head(prob1)
+```
+
+To get a better visualization of the data, we decided to plot the signal. We used `ggplot()` from `ggplot2` to plot `time` against `signal` and shrunk the x-axis down to a 20-second time window so we could get a better look at its details. The result is a larger wave made up of smaller, jagged-looking waves.
+
+```{r, warning=FALSE}
+ggplot(prob1, aes(time, signal)) + geom_line() + xlab("Time") + ylab("Signal") + xlim(0,20) + ggtitle("Signal Plot") + theme_minimal()
+```
+
+## Compute FFT
+
+Now that we've gotten a glimpse of the signal itself, it's time to compute the Fast Discrete Fourier Transform (or FFT). First, we use the built-in `fft()` function to calculate the FFT output, which is stored in the variable `ffts`. Then, using the function `fftfreqs()` from the file `fftutils.r` that we called in at the beginning of the problem, we calculate the corresponding frequencies and store them in `fftfreqs`. The difference between each time increment is 0.01, so we fill it in as so. We also calculate the power and assign it to the variable `power`, using the formula $|\hat{g}(f)|^2$, where $\hat{g}(f)$ represents the output of the FFT (`ffts`). This is important because `power` is ultimately what we'll end up graphing the FFT frequencies (`fftfreqs`) against, and it will allow us to visualize the power spectrum.
+
+After completing the FFT and creating our three variables, we can create a dataframe called `fftdata` to contain and later plot them. We stored `fftfreqs` under `Frequency`, `power` under `Power`, and `ffts` under `FT`. Calling `head()` on this dataframe allows us to verify that everything was created and calculated correctly. For example, as expected of the output of the FFT, the column `FT` contains complex numbers.
+
+```{r}
+ffts <- fft(prob1$signal, inverse = FALSE)
+fftfreqs <- fftfreq(length(prob1$signal), 0.01)
+power <- abs(ffts)^2
+
+fftdata <- data.frame(Frequency=fftfreqs, Power=power, FT=ffts)
+
+head(fftdata)
+```
+
+Using `ggplot()` and the `fftdata` dataframe, we plot the variables `Frequency` on the x-axis against `Power` on the y-axis and shrink the scale of the x-axis to a 10-frequency window. The result is a plot of the four dominant components of the signal, as each of these peaks represents a single component.
+
+```{r, warning=FALSE}
+ggplot(fftdata, aes(Frequency, Power)) + geom_line() + xlim(0, 10) + ggtitle("Dominant Components of the Signal") + theme_minimal()
+```
+
+## Peaks
+
+Because each peak represents a contribution to the signal and demonstrates which frequencies have the highest powers, which will allow us to determine each component's period, we need to isolate the peaks from the rest of the data. We do this below by isolating for any values from the `Power` column that are greater than three times the column's standard deviation (which is very close to zero). By printing out all of peaks, we are able to see that instead of four values, we have eight. This, however, is to be expected. The first four are the positive frequencies, which we can use, and the last four are negative copies. We will focus on the first four values.
+
+```{r}
+peaks <- fftdata[fftdata$Power > 3 * sd(fftdata$Power),]
+peaks
+```
+
+Now that we've extracted the peaks, we can use their frequencies to calculate each component's period using the simple formula $T = \frac{1}{f}$, where $f$ stands for frequency and $T$ for period. We used the `dplyr` function `mutate()` to enact this formula on each peak and add it as a new column under the variable `Period` to the `peaks` dataframe, as shown below. We can print out each period, in seconds, using `paste()` and the access operation `peaks$Period[1:4]`.
+
+```{r}
+peaks <- peaks %>%
+  mutate(Period = 1/Frequency)
+
+paste(peaks$Period[1:4],"second(s)")
+```
+
+We also want to calculate the amplitude of each component, using the formula shown below, where $N$ represents the total number of observations and $F(f)$ represents the output of the FFT (complex numbers), which is equivalent to `FT` in our `peaks` dataframe.
+
+$$
+\frac{1}{N}|F(f)|\times2
+$$
+
+We calculated $N$ by finding the length of one of the `fftdata`'s arbitrary columns, `FT`. Then we solved for amplitude (in meters per second) using the formula and added it as a new column to the `peaks` dataframe under the variable `Amplitude`. We can print out each amplitude, in meters per second, using `paste()` and the access operation `peaks$Amplitude[1:4]`.
+
+```{r}
+# number of observations
+N = length(fftdata$FT)
+
+amplitude <- (2 / N) * abs(peaks$FT)
+peaks$Amplitude <- amplitude
+
+paste(peaks$Amplitude[1:4],"m/s")
+```
+
+The last piece of each component we must solve for is the phase. In order to do so, we use the formula below, where $ϕ$ represents the phase in radians, $Im(F(f))$ represents the imaginary part of the complex output of the FFT, and $Re(F(f))$ represents the real part of the complex output of the FFT.
+
+$$
+ϕ = arctan(\frac{Im(F(f))}{Re(F(f))})
+$$
+
+We calculated the phase (in radians) using the formula, and then added it to the `peaks` dataframe as the column under the variable `Phase`. We can print out each phase, in radians, using `paste()` and the access operation `peaks$Phase[1:4]`.
+
+```{r}
+phase_rads <- atan2(Im(peaks$FT), Re(peaks$FT))
+peaks$Phase <- phase_rads
+
+paste(peaks$Phase[1:4],"radians")
+```
+
+## Components and plotting
+
+Now that we have all the pieces of each component, we can begin the process of plotting them separately. The base form of each component of the signal is written below, where $y(t)$ represents a component, $A$ represents its amplitude, $T$ represents its period, $ϕ$ represents its phase, and $t$ represents time.
+
+$$
+y(t) = Acos(\frac{2πt}{T}+ϕ)
+$$
+
+For the first component, we selected the first amplitude, frequency, and phase from the `peaks` dataframe. The reason we extracted frequency here instead of period is because in the equation, $T$ is on the bottom of the fraction, and $\frac{1}{T}=f$. Having gathered the necessary values, we proceeded with the formula and calculated the first component, assigning it to the variable `comp1`.
+
+```{r}
+comp1 <- peaks$Amplitude[1] * cos(2*pi * peaks$Frequency[1] * prob1$time + peaks$Phase[1])
+```
+
+Using `ggplot()`, the original dataset `prob1`, and our calculated `comp1`, we created two graphs. The one on the left is the original signal (in blue) plotted against component 1 (in orange), while the one on the right is just a plot of component 1. Both have `time` on the x-axis and the amplitude of the signal on the y-axis, and are excluded to a 10-second window on the x-axis.
+
+As we can clearly see by these graphs, component 1 seems to be a definite piece of the original signal, and we can move on to calculating the second component.
+
+```{r}
+#| layout-ncol: 2
+#| column: page
+#| warning: False
+#| code-fold: True
+
+ggplot(prob1, aes(time, signal)) + geom_line(aes(time, comp1), color="orange", size=1) + geom_line(aes(time, signal), color="blue") + xlab("Time") + ylab("Amplitude") + ggtitle("Component 1 vs. Original Signal") + xlim(0,10) + theme_minimal()
+
+ggplot(prob1, aes(time, comp1)) + geom_line(color="orange", size=1) + xlab("Time") + ggtitle("Component 1 vs. Time") + ylab("Amplitude") + xlim(0,10) + theme_minimal()
+```
+
+For the second component, we use the same formula as before, this time selecting the second amplitude, frequency, and phase from the `peaks` dataframe. Having gathered the necessary values, we plug them into the formula and calculate the second component, assigning it to the variable `comp2`.
+
+```{r}
+comp2 <- peaks$Amplitude[2] * cos(2*pi * peaks$Frequency[2] * prob1$time + peaks$Phase[2])
+```
+
+We created two more graphs in the same way as we did the first two. The one on the left is the original signal (in blue) plotted against component 2 (in orange), while the one on the right is just a plot of component 2. They have the same x-axes, y-axes, and windows as the previous graphs.
+
+Though it has a shorter wavelength than component 1, component 2 also seems to be a piece of the original signal, and we can move on to calculating the third component.
+
+```{r}
+#| layout-ncol: 2
+#| column: page
+#| warning: False
+#| code-fold: True
+
+ggplot(prob1, aes(time, signal)) + geom_line(aes(time, comp2), color="orange", size=1) + geom_line(aes(time, signal), color="blue") + xlab("Time") + ylab("Amplitude") + ggtitle("Component 2 vs. Original Signal") + xlim(0,10) + theme_minimal()
+
+ggplot(prob1, aes(time, comp2)) + geom_line(color="orange", size=1) + xlab("Time") + ggtitle("Component 2 vs. Time") + ylab("Amplitude") + xlim(0,10) + theme_minimal()
+```
+
+For the third component, we select the third amplitude, frequency, and phase from the `peaks` dataframe and plug them into the formula. Our third component is stored under the variable `comp3`.
+
+```{r}
+comp3 <- peaks$Amplitude[3] * cos(2*pi * peaks$Frequency[3] * prob1$time + peaks$Phase[3])
+```
+
+Again, we create two more graphs! The one on the left is the original signal (in blue) plotted against component 3 (in orange), while the one on the right is just a plot of component 3. They have the same x-axes, y-axes, and windows as the previous graphs.
+
+Component 3 has an even shorter wavelength than component 2 and 1. We continue on to calculating the fourth and final component.
+
+```{r}
+#| layout-ncol: 2
+#| column: page
+#| warning: False
+#| code-fold: True
+
+ggplot(prob1, aes(time, signal)) + geom_line(aes(time, comp3), color="orange", size=1) + geom_line(aes(time, signal), color="blue") + xlab("Time") + ylab("Amplitude") + ggtitle("Component 3 vs. Original Signal") + xlim(0,10) + theme_minimal()
+
+ggplot(prob1, aes(time, comp3)) + geom_line(color="orange", size=1) + xlab("Time") + ggtitle("Component 3 vs. Time") + ylab("Amplitude") + xlim(0,10) + theme_minimal()
+```
+
+For the fourth and final component, we select the fourth amplitude, frequency, and phase from the `peaks` dataframe and plug them into the formula. Our fourth component is stored under the variable `comp4`.
+
+```{r}
+comp4 <- peaks$Amplitude[4] * cos(2*pi * peaks$Frequency[4] * prob1$time + peaks$Phase[4])
+```
+
+For the last time, we create two more graphs. The one on the left is the original signal (in blue) plotted against component 4 (in orange), while the one on the right is just a plot of component 4. They have the same x-axes, y-axes, and windows as the previous graphs.
+
+Component 4 the shortest wavelength compared to all the other components, and is clearly a piece of the original signal. This concludes the calculation and plotting of our components!
+
+```{r}
+#| layout-ncol: 2
+#| column: page
+#| warning: False
+#| code-fold: True
+
+ggplot(prob1, aes(time, signal)) + geom_line(aes(time, comp4), color="orange", size=0.5) + geom_line(aes(time, signal), color="blue") + xlab("Time") + ylab("Amplitude") + ggtitle("Component 4 vs. Original Signal") + xlim(0,10) + theme_minimal()
+
+ggplot(prob1, aes(time, comp4)) + geom_line(color="orange", size=0.5) + xlab("Time") + ggtitle("Component 4 vs. Time") + ylab("Amplitude") + xlim(0,10) + theme_minimal()
+```
+
+## Residuals
+
+Now that we've extracted all components of the signal, we can more closely examine the noise present in the original signal using residuals. To find these residuals, we calculate the total summed signal (all components added together), which we name `total_signal`, and then subtract it from the original signal. This should give us the noise as a collection of differences. We also add these values to a dataframe called `residuals` for plotting purposes.
+
+```{r}
+total_signal <- comp1 + comp2 + comp3 + comp4
+
+residuals <- data.frame(Residuals = prob1$signal - total_signal)
+```
+
+In order to plot a visualization of the noise, we use `ggplot()` to create a histogram of the residuals. Because the histogram appears Gaussian, we can infer that the added noise was also Gaussian.
+
+```{r}
+#| warning: False
+
+ggplot(residuals, aes(Residuals)) + geom_histogram(color="black", fill="lightblue") + ggtitle("Histogram of Residuals") + theme_minimal()
+```

@@ -1,0 +1,139 @@
+---
+title: "Deciphering Transit Data"
+author:
+  - Gabriella Weis
+  - Mamadou Dem
+date: today
+format:
+ html:
+    embed-resources: true
+    theme: cosmos
+    title-block-banner: true
+editor: visual
+---
+
+## Introduction
+
+In this problem, we are tasked with examining an exoplanet's transit data, identifying its period, eliminating noise, and estimating the average at the base of the brightness dip where it passes in front of its star. To begin, we loaded in the collection of packages `tidyverse`, which contains `ggplot2` and `dplyr`. `Ggplot2` will be useful for plotting and `dplyr` will assist with data organization and manipulation. We also loaded in the data, which we named `prob2`.
+
+```{r, output=FALSE}
+library(tidyverse)
+
+prob2 <- read_csv("C:/Users/glwei/Downloads/Prob2.csv")
+```
+
+We took a look at the first six rows of the data using `head()`, noting the two variables `time` and `signal`. `Time` is measured in seconds and `signal` is the star's perceived brightness level approximately normalized around 1. This will drop when the exoplanet passes in front of it. Taking a quick glance at the `time` column, we see that all of its increments are NOT consistent, meaning we can't perform Fourier analysis on this data.
+
+```{r}
+head(prob2)
+```
+
+Just to get a bit of a better idea of what our signal looks like, we decided to plot it using `ggplot()` from the package `ggplot2`. We put `time` on the x-axis, `signal` on the y-axis, and zoomed into a 1000-second window to visualize its details. Unfortunately there isn't much we can glean just by looking at it in this way, so we continue onward in our exploration.
+
+```{r, warning=FALSE}
+ggplot(prob2, aes(time, signal)) + geom_line() + xlab("Time") + ylab("Signal") + xlim(0,1000) + ggtitle("Signal Plot") + theme_minimal()
+```
+
+## Histogram
+
+In order to verify our previous observation of a lack of consistent differences between consecutive time measurements, we can make a histogram of these differences. First we make a new dataframe called `diffs` that contains one column, labeled `Differences`. This column represents the difference between each observation in `prob2`'s `time` column and its next observation. Next, we used `ggplot()` again to create a histogram of these differences. The result is a histogram of varied differences, which matches exactly with our previous conclusion. Calling `median()` on `Differences` tells us that the median difference between time measurements is 17 seconds.
+
+```{r}
+#| warning: False
+
+diffs <- data.frame(Differences = diff(prob2$time))
+
+ggplot(diffs, aes(Differences)) + geom_histogram(color = "black", fill = "lightblue") + ggtitle("Histogram of Differences") + theme_minimal()
+
+med <- median(diffs$Differences)
+paste("Median difference =", med, "seconds.")
+```
+
+# Lomb-Scargle
+
+Now that we are certain that the time between consecutive measurements is not consistent, we can create a Lomb-Scargle periodogram instead of one resulting from Fourier analysis. To do so, we must first load in the package `lomb`, which contains the function `lsp()` for model creation.
+
+```{r, output=FALSE}
+library(lomb)
+```
+
+A Lomb-Scargle periodogram requires us to provide a range of frequencies to check for. Because $T = \frac{1}{f}$, where $f$ stands for frequency and $T$ for period, we can just use periods and convert it to frequencies for the model calculation. It's good to keep in mind the existence of aliases, which proceed upwards from low to high, and are false peaks caused by the sampling rate. To avoid these fakes and capture the true period, we must be sure to use high enough periods (i.e. low enough frequencies).
+
+We create two variables to be our scale for the periodogram, `min_period` and `max_period`, and assign them what we believe to be reasonable periods (in seconds). However, our first attempt reveals four clear aliases. It seems that our `min_period` is not high enough (remember, a higher period will correspond to a lower frequency, so what we are essentially saying is that the maximum frequency needs to be lower).
+
+```{r}
+min_period = 100
+max_period = 10000
+
+model <- lsp(prob2, from=1/max_period, to=1/min_period)
+```
+
+By raising the `min_period` by 300 seconds, we are able to isolate the window down to the one true peak, shown in the periodogram below at a frequency just under 0.0015. This is the single period hidden within the signal.
+
+```{r}
+min_period = 400
+max_period = 10000
+
+model <- lsp(prob2, from=1/max_period, to=1/min_period)
+```
+
+Next, we need to extract this period. This requires first finding the peak frequency (in hertz), stored under `peak_freq`, using `model$peak.at` to select it from the Lomb-Scargle model. Then we can calculate the period, stored under `period`, using the same formula as before: $T = \frac{1}{f}$, where $f$ stands for frequency and $T$ for period. This gives us a period of approximately 675.4189 seconds.
+
+```{r}
+peak_freq <- model$peak.at[1]
+period <- 1/peak_freq
+
+paste(period, "seconds")
+```
+
+To better visualize the extracted signal and "fold" it so that the x-axis proceeds from 0 to the length of the period instead of its full range of values, we can calculate the phase using the formula $ϕ = \frac{t}{T}$, where $ϕ$ represents the phase (in seconds in this case), $t$ represents time (in seconds), and $T$ represents the period (also in seconds). We can then make use of the modulo operator `%%` to "wrap" the signal. This `phase` can then be added as a new column to the `prob2` dataset.
+
+```{r}
+phase <- prob2$time %% period
+prob2$phase <- phase
+```
+
+Now, using `ggplot()`, we can plot our newly acquired phase against the signal, restricting the x-axis to 680 seconds. The result is a graph of the signal across a single period, where we can clearly see the time during which the signal was hidden (around/just below 200 seconds on the x-axis).
+
+```{r}
+ggplot(prob2, aes(phase, signal)) + geom_point() + xlab("Phase") + ylab("Signal") + xlim(0,680) + ggtitle("Phase Folded Signal") + theme_minimal()
+```
+
+## Smooth Signal and Dip Average
+
+Unfortunately, the noise mixed in with the signal makes it more difficult to read. Thankfully, fixing this with the use of a rolling average is simple. First, we load in a new package, called `zoo`, which contains the function `rollmean()`. Then, we use the `dplyr` verb `arrange()` to order `phase` beforehand. We need phase to be in order from smallest to largest because of the way `rollmean()` works. For every average it calculates, it considers the number of points around the point it's calculating the average for (specified with the argument "k"). This means that if the points are out of order, `rollmean()` will not work as intended.
+
+After arranging the phase data, we use another `dplyr` verb, `mutate()`, to perform the rolling mean calculations and assign them to a new column in the `prob2` data called `rolling`. K is specified as 25. This ensures that we smooth the signal enough to eliminate noise, but do not mess too much with the true signal. Having done this, we are ready to plot our smoothed signal.
+
+```{r, output=FALSE}
+library(zoo)
+
+prob2 <- arrange(prob2, phase)
+
+prob2 <- prob2 %>%
+  mutate(rolling = rollmean(signal, k=30, fill=NA))
+```
+
+To plot the signal this time, we place `phase` on the x-axis and `rolling` on the y-axis. This gives us a wonderful plot of the smoothed signal. We can see the dip in it even more clearly now, dropping from an average brightness of about 1 to 0.988 on the y-axis.
+
+```{r, warning=FALSE}
+ggplot(prob2, aes(phase, rolling)) + geom_line() + xlab(" Phase") + ylab("Rolling Mean") + ggtitle("Smoothed Signal") + xlim(0,680) + theme_minimal()
+```
+
+We wanted to get a good visual of the original, un-smoothed signal against the smoother version, so we plotted this as well, making the noisy signal's points a bit more transparent for readability's sake. The red line of the smoothed signal closely follows the path of the original data and appears to accurately represent the true signal of the exoplanet's transit.
+
+```{r, warning=FALSE}
+ggplot(prob2, aes(phase, signal)) + geom_point(color = "lightblue", alpha = 0.9) + xlim(0,680) + geom_line(aes(phase, rolling), color = "red") + xlab("Phase") + ylab("Signal") + ggtitle("Smoothed Signal Over Original") + theme_minimal()
+```
+
+Lastly, we will find the average signal across the bottom of the dip. First we graphed a smaller window to isolate and visualize the dip. Then, we used the `dplyr` verb `filter()` to select all values from rolling that fell below the 0.992 mark (also visualized as a dashed red line on the graph), which aligned closely with the bottom of the dip. Next, we took the average of the shrunken rolling column using the `mean()` function and were left with a value of approximately 0.9901868. This represents the average brightness of the star when the exoplanet passed in front of it.
+
+```{r, warning=FALSE}
+ggplot(prob2, aes(phase, rolling)) + geom_line() + geom_hline(yintercept = 0.992, linetype = "dashed", color = "red") + xlab("Phase") + ylab("Rolling Mean") + xlim(100, 250) + theme_minimal()
+
+dip_region <- prob2 %>%
+  filter(rolling <= 0.992)
+
+dip_avg <- mean(dip_region$rolling, na.rm=FALSE)
+paste("Average brightness across the bottom of the dip:",dip_avg)
+```

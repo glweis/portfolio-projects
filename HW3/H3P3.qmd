@@ -1,0 +1,317 @@
+---
+title: "The Exoplanet Search"
+author:
+  - Gabriella Weis
+  - Mamadou Dem
+date: today
+format:
+ html:
+    embed-resources: true
+    theme: cosmos
+    title-block-banner: true
+editor: visual
+---
+
+## Introduction
+
+In this problem, we have been tasked with using the given observations of an exoplanet star, which is known to have a mass of $1.9885 \times 10^{30}$ kilograms and a radius of 695700 kilometers, to calculate several values. These include the number of planets orbiting said star, in addition to each planet's mass, radius, and density. It must also be noted that we are viewing this star's system perfectly "edge-on," which will become important as we work to calculate planetary statistics. Afterward, we will compare these resulting parameters to planets in our solar system, and attempt to identify which planets of ours these most closely resemble.
+
+To begin, we loaded in the collection of packages `tidyverse`, which contains `ggplot2` and `dplyr`. `Ggplot2` will be useful for plotting and `dplyr` will assist with data organization and manipulation. We also called in a file called `fftutils.r`, which we require for calculating frequencies in Fourier analysis (touched more on later), and loaded in both datasets. One dataset is doppler data, named `prob3_dop` and the other is transit data, named `prob3_tran`.
+
+```{r, output=FALSE}
+library(tidyverse)
+source('fftutils.r')
+
+prob3_dop <- read_csv("C:/Users/glwei/Downloads/Prob3_Doppler.csv")
+prob3_tran <- read_csv("C:/Users/glwei/Downloads/Prob3_Transit.csv")
+```
+
+We took a look at the first six rows of each dataset using the `head()` operation. In the doppler data (`prob3_dop`), there are two variables, named `time_sec` for time in seconds and `rad_vel` for radial velocity (in meters per second). Because of the equal time increments between time measurements in this dataset, we can use Fourier analysis on the two variables to determine planetary period(s), amplitude(s), and eventually mass(es). In the transit data (`prob3_tran`), there are also two variables, one again named `time_sec` and the other `norm_bright`, which represents the host star's brightness normalized around 1. The time increments between this dataset's time measurements are not equal, but as long as we can make use of the doppler data, we will be able to obtain the period information we need. Instead, we will use the transit data to calculate the loss of brightness as the exoplanet(s) make their transit(s) in front of the star, which can in turn be used to calculate planetary radii. It is the intersection of these results that will eventually enable us to calculate the density of the planet(s).
+
+```{r}
+head(prob3_dop)
+head(prob3_tran)
+```
+
+## Velocity and Periods
+
+To get a good idea of what our doppler data looks like, we decided to plot it using `ggplot()` from `ggplot2`. We put `time_sec` on the x-axis, `rad_vel` on the y-axis, and zoomed into a 7000000-second window for clearer details. The signal appears complex, but we can't know anything for certain until we perform a Fourier Analysis and locate potential periods.
+
+```{r, warning=FALSE}
+ggplot(prob3_dop, aes(time_sec, rad_vel)) + geom_line() + xlim(0,7000000) + xlab("Time (seconds)") + ylab("Radial Velocity (m/s)") + ggtitle("Signal Plot") + theme_minimal()
+```
+
+As we did similarly in Problem 1 of this collection of problems, to compute the Fast Discrete Fourier Transform (or FFT), we first use the built-in `fft()` function to calculate the FFT output, which is stored in the variable `ffts`. Then, using the function `fftfreqs()` from the file `fftutils.r` that we called in at the beginning of the problem, we calculate the corresponding frequencies and store them in `fftfreqs`. The difference between each time increment is 25000, so we fill it in as so. We also calculate the power and assign it to the variable `power`, using the formula $|\hat{g}(f)|^2$, where $\hat{g}(f)$ represents the output of the FFT (`ffts`). This is important because `power` is ultimately what we'll end up graphing the FFT frequencies (`fftfreqs`) against, and it will allow us to visualize the power spectrum.
+
+Now that we've completed the FFT and created our three variables, we can create a dataframe called `fftdata` to contain and later plot them. We stored `fftfreqs` under `Frequency`, `power` under `Power`, and `ffts` under `FT`. Calling `head()` on this dataframe allows us to verify that everything was created and calculated correctly. For example, as expected of the output of the FFT, the column `FT` contains complex numbers.
+
+```{r}
+ffts <- fft(prob3_dop$rad_vel, inverse = FALSE)
+fftfreqs <- fftfreq(length(prob3_dop$rad_vel), 25000)
+power <- abs(ffts)^2
+
+fftdata <- data.frame(Frequency=fftfreqs, Power=power, FT=ffts)
+
+head(fftdata)
+```
+
+Using `ggplot()` and the `fftdata` dataframe, we plot the variables `Frequency` on the x-axis against `Power` on the y-axis and shrink the scale of the x-axis to a 0.00001-frequency window. The result is a plot of the two dominant components of the signal, as each of these peaks represents a single component. From this we can infer that there are two exoplanets orbiting this star! Now, we have to extract their information.
+
+```{r, warning=FALSE}
+ggplot(fftdata, aes(Frequency, Power)) + geom_line() + xlim(0, 0.00001) + ggtitle("Dominant Components of the Signal") + theme_minimal()
+```
+
+Each peak represents a contribution to the signal and demonstrates which frequencies have the highest powers, which will allow us to determine each planet's period. Therefore, we need to isolate the peaks from the rest of the data. We do this by isolating for any values from the `Power` column that are greater than three times the column's standard deviation (which is very close to zero). By printing out all of peaks, we are able to see that instead of two values, we have four. The first two values are the positive frequencies, which we can use, and the last two are negative copies.
+
+```{r}
+peaks <- fftdata[fftdata$Power > 3 * sd(fftdata$Power),]
+peaks
+```
+
+We can use the frequencies of our two peaks to calculate each planet's period using the formula $T = \frac{1}{f}$, where $f$ stands for frequency and $T$ for period. We used the `dplyr` function `mutate()` to enact this formula on each peak and add it as a new column to the `peaks` dataframe, as shown below. We can print out the first two periods in terms of seconds using the `paste()` function and `peaks$Period[]`.
+
+```{r}
+peaks <- peaks %>%
+  mutate(Period = 1/Frequency)
+
+paste("Planet 1 period:", peaks$Period[1], "seconds")
+paste("Planet 2 period:", peaks$Period[2], "seconds")
+```
+
+We also want to calculate the amplitude (in meters per second) of each planet, also known as velocity in this case. Because we are viewing the orbit perfectly "edge-on," the true velocity is what is measured at the peak of the Doppler curve, which we plotted earlier. To be as accurate as possible in its calculation, we can use the formula shown below, where $N$ represents the total number of observations and $F(f)$ represents the output of the FFT (complex numbers), which is equivalent to `FT` in our `peaks` dataframe.
+
+$$
+\frac{1}{N}|F(f)|\times2
+$$
+
+We calculated $N$ by finding the length of one of the `fftdata`'s arbitrary columns, `FT`. Then we solved for amplitude using the formula and added it as a new column to the `peaks` dataframe. We can print out the first two amplitudes in terms of meters per second using the `paste()` function and `peaks$Amplitude[]`.
+
+```{r}
+# number of observations
+N = length(fftdata$FT)
+
+amplitude <- (2 / N) * abs(peaks$FT)
+
+peaks$Amplitude <- amplitude
+
+paste("Planet 1 amplitude:", peaks$Amplitude[1], "m/s")
+paste("Planet 2 amplitude:", peaks$Amplitude[2], "m/s")
+```
+
+## Mass
+
+Now that we know how many planets are orbiting the host star, along with their velocities and periods, we can calculate the mass of each. To do so, we must follow the equation below, where $M_2$ represents the mass of the planet being calculated (in kilograms), $M_{tot}$ represents the total mass of the planet and its star (in kilograms), $G$ represents the gravitational constant 6.67430e-11, $v_1$ represents the planet's velocity (in meters per second), and $p$ represents the planet's period (in seconds).
+
+$$
+M_2 = (\frac{M_{tot}^2}{G}\frac{v_1^3p}{2π})^{1/3}
+$$
+
+We created a function for calculating mass that takes in $M_{tot}$ as `mtot`, $v_1$ as `vel` and $p$ as `per`. The function uses the specified mass formula to calculate a planet's mass.
+
+```{r}
+mass <- function(mtot, vel, per) {
+  G = 6.67e-11
+  return ((mtot^2 / G * vel^3 * per / (2*pi))^(1/3))
+}
+```
+
+After creating the mass function, it seems we have every necessary variable except for $M_{tot}$. Fortunately, because the host star's mass is much greater than the mass of either of the planets, we can treat $M_{tot}$ as $M_1$, or the mass of the star in kilograms. Below, we assign the variable `star_mass` to the mass of the star mentioned in the introduction, $1.9885 \times 10^{30}$ kilograms.
+
+```{r}
+star_mass <- 1.9885e+30
+```
+
+Finally, we have all of the necessary variables for mass calculation. For both planets, whose masses are labeled `mass1` and `mass2`, we plug in `star_mass` for `mtot` and select the corresponding amplitude/velocity and period for `vel` and `per` respectively. Then we can use the `paste()` function to print out each planetary mass in kilograms.
+
+```{r}
+mass1 <- mass(star_mass, peaks$Amplitude[1], peaks$Period[1])
+mass2 <- mass(star_mass, peaks$Amplitude[2], peaks$Period[2])
+
+paste("Planet 1 mass:", mass1, "kilograms")
+paste("Planet 2 mass:", mass2, "kilograms")
+```
+
+## Dips and Radii
+
+We used the doppler data to find the number of planets and calculate a mass in kilograms for each of them. Now, we'll use the transit data to estimate the percent of light lost as both planets pass in front of their host star. This will allow us to calculate the radius for each planet.
+
+For this, we first must calculate the phase for each planet in seconds (as those are the units of the planet periods). The phase will allow us to better visualize the extracted signal and "fold" it so that the x-axis proceeds from 0 to the length of the period instead of its full range of values. We use the formula $ϕ = \frac{t}{T}$, where $ϕ$ represents the phase (in seconds), $t$ represents time (in seconds), and $T$ represents the period (also in seconds). We can then make use of the modulo operator `%%` to "wrap" the signal. We created a new dataset for each planet, called `planet1` and `planet2`, and use the `dplyr` verb `mutate()` to create new phase columns in each.
+
+```{r}
+planet1 <- prob3_tran %>% 
+  mutate(phase = time_sec %% peaks$Period[1])
+
+planet2 <- prob3_tran %>%
+  mutate(phase = time_sec %% peaks$Period[2])
+```
+
+Now, using `ggplot()`, we can plot our newly acquired phases against their respective normalized brightness signals. The result is two graphs with massive clumped lines of points along the top and less thick sections of points down lower that might correspond to a dip. Still, it is difficult to tell where the dips are, and we need to smooth out the extra noise.
+
+```{r}
+#| layout-ncol: 2
+#| column: page
+#| warning: False
+#| code-fold: True
+
+ggplot(planet1, aes(phase, norm_bright)) + geom_point() + xlab("Phase") + ylab("Normalized Brightness") + ggtitle("Planet 1") + theme_minimal()
+
+ggplot(planet2, aes(phase, norm_bright)) + geom_point() + xlab("Phase") + ylab("Normalized Brightness") + ggtitle("Planet 2") + theme_minimal()
+```
+
+We can smooth both brightness signals using a rolling average. First, we load in the package `zoo`, which contains the function `rollmean()`. Then, we use the `dplyr` verb `arrange()` to order each phase beforehand. We need phase to be in order from smallest to largest because of the way `rollmean()` works. For every average it calculates, it needs to consider a certain number of points around the point it's calculating the average for (we specify this number with "k"). In other words, if the points are out of order, `rollmean()` will not work as intended.
+
+After arranging the phase data for both `planet1` and `planet2`, we use another `dplyr` verb, `mutate()`, to perform the rolling mean calculations and assign them to a new column in each dataset called `rolling`. K is specified as 400 for each, due to the massive size of each dataset (20000 observations). This ensures that we smooth the signals just enough to eliminate noise, but not enough to mess too much with the true signals. Now, we can plot our smoothed signals.
+
+```{r, output=FALSE, warning=FALSE}
+library(zoo)
+
+planet1 <- arrange(planet1, phase)
+planet2 <- arrange(planet2, phase)
+
+planet1 <- planet1 %>%
+  mutate(rolling = rollmean(norm_bright, k=400, fill=NA))
+
+planet2 <- planet2 %>%
+  mutate(rolling = rollmean(norm_bright, k=400, fill=NA))
+```
+
+To plot the brightness signals this time, we place the planet's `phase` on the x-axis and `rolling` on the y-axis. This creates a much clearer signal for both planets, and allows us to identify a dip in each. Planet 2's dip in particular is very obvious.
+
+```{r, warning=FALSE}
+#| layout-ncol: 2
+#| column: page
+#| warning: False
+#| code-fold: True
+
+ggplot(planet1, aes(phase, rolling)) + geom_line() + xlab("Phase") + ylab("Rolling Mean") + ggtitle("Planet 1") + theme_minimal()
+
+ggplot(planet2, aes(phase, rolling)) + geom_line() + xlab("Phase") + ylab("Rolling Mean") + ggtitle("Planet 2") + theme_minimal()
+```
+
+We also plotted the smoothed signals against the original, un-smoothed signals using more transparent, lighter points for improved readability. Unfortunately, the dips themselves, especially that of Planet 1, are a bit difficult to see. Despite that, they still appear to be in the locations on the original signal where we'd expect, around the areas with more lower points.
+
+```{r}
+#| layout-ncol: 2
+#| column: page
+#| warning: False
+#| code-fold: True
+
+ggplot(planet1, aes(phase, norm_bright)) + geom_point(color = "lightblue", alpha = 0.9) + geom_line(aes(phase, rolling), color = "red") + xlab("Phase") + ylab("Signal") + ggtitle("Planet 1") + theme_minimal()
+
+ggplot(planet2, aes(phase, norm_bright)) + geom_point(color = "lightblue", alpha = 0.9) + geom_line(aes(phase, rolling), color = "red") + xlab("Phase") + ylab("Signal") + ggtitle("Planet 2") + theme_minimal()
+```
+
+In order to calculate the radii for each planet, we can use these dips to first find the percent of brightness from the star that was lost by planet transit in front of it. Then we will use a formula containing this percentage and the star's radius to calculate the radius of each planet.
+
+Our strategy for calculating the percent of brightness lost will be finding the average value along the bottom of each dip. We can do this by averaging all values on the dip graphs below a certain point on the y-axis. To find the necessary point on the y-axis, we graphed each planetary dip once more, this time isolating the dips in smaller windows so we could get a good look at the y-axis in relation. For Planet 1, a good cutoff line looks to be at about 0.9999. For Planet 2, 0.9998 appears best. These cutoff lines are plotted below on their respective graphs.
+
+```{r, warning=FALSE}
+#| layout-ncol: 2
+#| column: page
+#| warning: False
+#| code-fold: True
+
+ggplot(planet1, aes(phase, rolling)) + geom_line() + xlab("Phase") + ylab("Rolling Mean") + ggtitle("Planet 1") + theme_minimal() + xlim(1200000, 1750000) + geom_hline(yintercept = 0.9999, linetype = "dashed", color = "red")
+
+ggplot(planet2, aes(phase, rolling)) + geom_line() + xlab("Phase") + ylab("Rolling Mean") + ggtitle("Planet 2") + theme_minimal() + xlim(2e+05, 4e+05) + geom_hline(yintercept = 0.9998, linetype = "dashed", color = "red")
+```
+
+Considering our two cutoff lines, we calculate the average dip value for both planets. This requires first filtering by each planet's `rolling` column (the y-axis) into "dip regions." These regions include anything below our selected values of 0.9999 for Planet 1 and 0.9998 for Planet 2. Then we use the built in `mean()` function to calculate each average dip region (`avg1` and `avg2`), printing them out using `paste()`.
+
+```{r, warning=FALSE}
+dip_region1 <- planet1 %>%
+  filter(rolling <= 0.9999)
+avg1 <- mean(dip_region1$rolling)
+paste("Average brightness across the bottom of Planet 1 dip:", avg1)
+
+dip_region2 <- planet2 %>%
+  filter(rolling <= 0.9998)
+avg2 <- mean(dip_region2$rolling)
+paste("Average brightness across the bottom of Planet 2 dip:", avg2)
+```
+
+The averages we've calculated can now be used to calculate each planet's percentage of brightness blocked and then their radii. First, lets solve for the percentage of brightness lost. This follows the straightforward formula $p = (1-a) \times 100$, where $p$ represents the percentage and $a$ represents the average across the bottom of the dip. Multiplying by 100 is what converts our decimal value in terms of normalized brightness into a percentage, and is an important conversion that we can't miss!
+
+```{r}
+perc1 <- (1 - avg1) * 100
+perc2 <- (1 - avg2) * 100
+```
+
+We are ready to calculate the planetary radii. The equation for doing so is written below, where $p$ is once again the percent of brightness lost, $R_p$ is the radius of the planet, and $R_s$ is the radius of the star.
+
+$$
+p = (\frac{R_p}{R_s})^2
+$$
+
+We converted the radius equation into an easier format for solving for the planet radius, which is our goal. It uses the same variables and is shown below.
+
+$$
+R_p = \sqrt{p \times R_s^2}
+$$
+
+Because we know the star's radius of 695700 kilometers, we assign it to a value called `r_star` for use in the formula and proceed with calculations for both planets. Then we use `paste()` to print the resulting planet radii in kilometers.
+
+```{r}
+r_star <- 695700
+
+r_p1 <- sqrt(perc1 * r_star^2)
+r_p2 <- sqrt(perc2 * r_star^2)
+
+paste("Planet 1 radius:", r_p1, "kilometers")
+paste("Planet 2 radius:", r_p2, "kilometers")
+```
+
+## Density
+
+The final planet statistic we are searching for is density. The equation for density is $\frac{mass}{volume}$, so we still need to calculate volume. Fortunately, we can do this with the radii! The formula for the volume of a sphere is shown below ($V$ = volume and $r$ = radius).
+
+$$
+V = \frac{4}{3}\timesπr^3
+$$
+
+We will plug in each planet's radius into this equation and find both of their volumes in km^3^. For the benefit of future planet comparison, we use the conversion factor 10^9^ to change our units to cubic meters.
+
+```{r}
+vol1 = (4/3) * pi * r_p1^3
+vol2 = (4/3) * pi * r_p2^3
+
+vol1 = vol1 * 10^9
+vol2 = vol2 * 10^9
+```
+
+Finally, we have both planets' masses and volumes. Using the density formula $\frac{mass}{volume}$, we calculate each planet's density in kg/meter^3^. We used `paste()` to print out these values.
+
+```{r}
+den1 = mass1/vol1
+den2 = mass2/vol2
+
+paste("Planet 1 density:", den1, "kg/m cubed")
+paste("Planet 2 density:", den2, "kg/m cubed")
+```
+
+## Solar System Comparison
+
+Below, all planets in the solar system (along with our planets, creatively deemed Planet 1 and Planet 2), are listed beside their densities (in kg/m^3^), radii (in km), and masses (in 10^24^ kg).
+
+By observing the table, we can come to some basic conclusions for each category. In terms of density, both Planet 1 and Planet 2 have very low ones. The planet in our solar system that has the closest density to theirs (but mainly Planet 1's because it has a much higher density than the incredibly low Planet 2's), is Saturn. Saturn is a gas giant, not a rocky planet, which would have a higher density per cubic meter. Therefore, we can infer that both Planet 1 and Planet 2 are gaseous planets.
+
+Considering planetary radius now, Planet 1 has a greater but relatively close radius to Saturn and Jupiter. However, Planet 2 has a radius greater than two times that of Saturn! This reinforces the idea of both planets being gas giants.
+
+Finally, we compare masses. The masses of both Planet 1 and Planet 2 are very large compared to those of the rocky planets, like Mercury, Venus, Earth, and Mars. If we instead look at the gas giants Saturn and Jupiter, we find that their masses are extraordinarily close to those of our planets.
+
+To conclude, we have found a lot of evidence that both Planet 1 and Planet 2 are gas giants, and are closest in their properties to the planets Saturn and Jupiter.
+
+| Planets  | Density (kg/m^3^) | Radius (km) | Mass (x 10^24^ kg) |
+|----------|-------------------|-------------|--------------------|
+| Planet 1 | 580               | 90685       | 1811.839           |
+| Planet 2 | 66                | 126723      | 565.214            |
+| Mercury  | 5429              | 2439.5      | 0.330              |
+| Venus    | 5243              | 6052        | 4.87               |
+| Earth    | 5514              | 6378        | 5.97               |
+| Mars     | 3934              | 3396        | 0.642              |
+| Jupiter  | 1326              | 71492       | 1898               |
+| Saturn   | 687               | 60268       | 568                |
+| Uranus   | 1270              | 25559       | 86.8               |
+| Neptune  | 1638              | 24764       | 102                |
+
+: Table of Planetary Statistics
